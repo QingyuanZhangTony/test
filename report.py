@@ -1,0 +1,1018 @@
+import base64
+import io
+import os
+import smtplib
+import urllib
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+import urllib.parse
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import weasyprint
+from bs4 import BeautifulSoup
+from matplotlib.legend_handler import HandlerLine2D
+from obspy import read, UTCDateTime
+
+import account_credentials as credentials
+
+import datetime
+
+class Report:
+    """
+    Base class for generating reports.
+    Provides methods for generating HTML, converting images to Base64, and generating PDFs.
+    """
+
+    @staticmethod
+    def convert_images_to_base64(html_content):
+        """
+        Convert all image sources in the provided HTML content to Base64 encoded strings.
+
+        Args:
+        - html_content (str): The HTML content with potential image tags.
+
+        Returns:
+        - str: The modified HTML content with all images converted to Base64.
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Iterate over all img tags and convert images to Base64
+        for img_tag in soup.find_all('img'):
+            img_src = img_tag['src']
+
+            if img_src.startswith('file:///'):
+                # Convert file:/// URL to a local file path
+                img_src = urllib.parse.urlparse(img_src).path
+                img_src = os.path.normpath(img_src.lstrip('/'))  # Remove leading slash and normalize the path
+
+            if not img_src.startswith('data:'):  # Only convert if it's not already in Base64
+                try:
+                    with open(img_src, "rb") as img_file:
+                        img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+                        img_tag['src'] = f"data:image/png;base64,{img_base64}"
+                except FileNotFoundError:
+                    print(f"Image file not found: {img_src}")
+                except OSError as e:
+                    print(f"Error opening file {img_src}: {e}")
+
+        # Convert the soup object back to a string
+        return str(soup)
+
+    @staticmethod
+    def generate_pdf_buffer_from_html(html_content):
+        """
+        Generate a PDF report from the provided HTML content.
+
+        Args:
+        - html_content (str): The HTML content to be converted into a PDF.
+
+        Returns:
+        - bytes: The generated PDF as a byte string.
+        """
+        pdf_buffer = io.BytesIO()
+        weasyprint.HTML(string=html_content).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        return pdf_buffer
+
+    @staticmethod
+    def send_report_via_email(recipient, report_buffer, report_date):
+        """
+        Send the generated report PDF via email as an attachment.
+
+        Args:
+        - recipient (str): The email address of the recipient.
+        - report_buffer (BytesIO): The PDF buffer containing the report.
+        - report_date (str): The date of the report to be included in the file name.
+
+        Returns:
+        - bool: True if the email was sent successfully, False otherwise.
+        """
+        try:
+            # Create the email message
+            msg = MIMEMultipart('related')
+            msg['Subject'] = "Daily Report"
+            msg['From'] = credentials.EMAIL_ADDRESS
+            msg['To'] = recipient
+
+            # Construct the file name using the report date
+            filename = f"daily_report_{report_date}.pdf"
+
+            # Attach the PDF file from the buffer
+            part = MIMEApplication(report_buffer.getvalue(), Name=filename)
+            part['Content-Disposition'] = f'attachment; filename="{filename}"'
+            msg.attach(part)
+
+            # Connect to SMTP server
+            smtp_obj = smtplib.SMTP(credentials.SMTP_SERVER, credentials.SMTP_PORT)
+            smtp_obj.login(credentials.EMAIL_ADDRESS, credentials.EMAIL_PASSWORD)
+
+            # Send the email
+            smtp_obj.sendmail(credentials.EMAIL_ADDRESS, recipient, msg.as_string())
+
+            # Disconnect from SMTP server
+            smtp_obj.quit()
+            print("Email sent successfully.")
+            return True
+
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+            return False
+
+
+class DailyReport(Report):
+    def __init__(self, df, date_str, station_lat, station_lon, fill_map=False, simplified = False, p_only = False):
+        """
+        Initialize the DailyReport class with the provided parameters.
+
+        Args:
+        - df (pd.DataFrame): DataFrame containing earthquake data.
+        - date_str (str or datetime.date): The date for the report.
+        - station_lat (float): Latitude of the station.
+        - station_lon (float): Longitude of the station.
+        - fill_map (bool): Whether to fill the map with background imagery.
+        """
+        self.df = df
+        self.date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
+        self.station_lat = float(station_lat)
+        self.station_lon = float(station_lon)
+        self.fill_map = fill_map
+        self.simplified = simplified
+        self.p_only = p_only
+        self.report_folder = self.construct_report_folder_path()
+
+    def construct_report_folder_path(self):
+        """
+        Construct the path to the report folder based on the station information.
+
+        Returns:
+        - str: The path to the report folder.
+        """
+        network = self.df.iloc[0]['network']
+        code = self.df.iloc[0]['code']
+        base_dir = os.getcwd()
+        date_str = self.date_str
+        report_folder = os.path.join(base_dir, 'data', f'{network}.{code}', date_str, 'report')
+        os.makedirs(report_folder, exist_ok=True)
+        return report_folder
+
+    def plot_catalogue(self):
+        """
+        Plot a world map with all catalogued events and the station location.
+
+        Returns:
+        - str: The path to the saved plot image.
+        """
+        earthquakes = self.df[(self.df['catalogued'] == True) & (self.df['date'] == self.date_str)]
+        title = f"Catalogue Events on {self.date_str}"
+        output_path = os.path.join(self.report_folder, f'catalogued_plot_{self.date_str}.png')
+
+        # Define station location
+        latitude = self.station_lat
+        longitude = self.station_lon
+        code = self.df.iloc[0]['code']
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(10, 7),
+                               subplot_kw={'projection': ccrs.PlateCarree(central_longitude=longitude)})
+        ax.set_global()
+        ax.coastlines()
+
+        # Set map style based on fill_map option
+        if self.fill_map:
+            ax.stock_img()
+            cmap = plt.get_cmap('autumn')
+            station_color = '#7F27FF'
+            marker_color = '#FAA300'
+        else:
+            cmap = plt.get_cmap('viridis')
+            station_color = '#F97300'
+            marker_color = '#135D66'
+
+        # Plot station location
+        ax.plot(longitude, latitude, marker='^', color=station_color, markersize=16, linestyle='None',
+                transform=ccrs.Geodetic(), label=f'Station {code}')
+
+        norm = plt.Normalize(1, 10)
+
+        # Plot earthquakes
+        detected_count = 0
+        undetected_count = 0
+        for _, eq in earthquakes.iterrows():
+            color = cmap(norm(eq['mag']))
+            if eq['detected']:
+                marker = 's'  # Square for detected
+                detected_count += 1
+            else:
+                marker = 'o'  # Circle for undetected
+                undetected_count += 1
+            ax.plot(eq['long'], eq['lat'], marker=marker, color=color, markersize=10, markeredgecolor='white',
+                    transform=ccrs.Geodetic())
+
+        # Add color bar
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', pad=0.02, aspect=32.5, fraction=0.015, shrink=0.9)
+        cbar.set_label('Magnitude')
+
+        # Add title and legend
+        plt.title(title, fontsize=15)
+
+        detected_marker = plt.Line2D([], [], color=marker_color, marker='s', markersize=10, linestyle='None',
+                                     markeredgecolor='white')
+        undetected_marker = plt.Line2D([], [], color=marker_color, marker='o', markersize=10, linestyle='None',
+                                       markeredgecolor='white')
+        station_marker = plt.Line2D([], [], color=station_color, marker='^', markersize=10, linestyle='None',
+                                    markeredgecolor='white')
+
+        plt.legend([detected_marker, undetected_marker, station_marker],
+                   [f'Detected Earthquake: {detected_count}', f'Undetected Earthquake: {undetected_count}',
+                    f'Station {code}'],
+                   loc='lower center', handler_map={plt.Line2D: HandlerLine2D(numpoints=1)}, ncol=3)
+
+        plt.tight_layout()
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+
+        # Save and close the plot
+        plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
+        plt.close()
+
+        return output_path
+
+    def daily_report_header_html(self):
+        """
+        Generate the header section of the daily earthquake report.
+
+        Returns:
+        - str: The HTML string for the daily report header.
+        """
+        # Find the row corresponding to the given date
+        date_row = self.df[self.df['date'] == self.date_str].iloc[0]
+
+        network = date_row['network']
+        code = date_row['code']
+        provider = date_row['provider']
+
+        simplified_status = "Yes" if self.simplified else "No"
+        p_only_status = "Yes" if self.p_only else "No"
+
+        header_html = f"""
+        <h2>Earthquake Report for {self.date_str}</h2>
+        <p>
+            <b>Station:</b> <span class="normal" style="display: inline-block; margin-right: 20px;">{network}.{code}</span>
+            <b>Catalog Provider:</b> <span class="normal" style="display: inline-block; margin-right: 20px;">{provider}</span>
+            <b>Simplified:</b> <span class="normal" style="display: inline-block; margin-right: 20px;">{simplified_status}</span>
+            <b>P Wave Only:</b> <span class="normal" style="display: inline-block;">{p_only_status}</span>
+        </p>
+        """
+        return header_html
+
+    def daily_report_catalog_html(self, simplified=True):
+        """
+        Generate the catalog section of the daily report, including a table of earthquakes.
+
+        Args:
+        - simplified (bool): Whether to display only earthquakes that are both catalogued and detected. Defaults to True.
+
+        Returns:
+        - str: The HTML string for the catalog section of the report.
+        """
+        image_path = os.path.join(self.report_folder, f'catalogued_plot_{self.date_str}.png')
+
+        # Filter the DataFrame based on the simplified flag
+        if simplified:
+            filtered_df = self.df[
+                (self.df['date'] == self.date_str) & (self.df['detected'] == True) & (self.df['catalogued'] == True)]
+        else:
+            filtered_df = self.df[(self.df['date'] == self.date_str) & (self.df['catalogued'] == True)]
+
+        # Construct the HTML for the catalog section
+        catalog_html = f"""
+        <h3>Catalogued Earthquake Plot</h3>
+        <img src="file:///{image_path}" alt="Catalogued Earthquake Plot for {self.date_str}" />
+        <h4>Detected and Catalogued Earthquakes</h4>
+        <table>
+            <tr>
+                <th>Time</th>
+                <th>Location</th>
+                <th>Magnitude</th>
+            </tr>
+        """
+
+        # Iterate over the filtered DataFrame rows to add each earthquake's data to the table
+        for _, row in filtered_df.iterrows():
+            time_str = pd.to_datetime(row['time']).strftime('%Y-%m-%d %H:%M:%S')
+            location_str = f"{row['lat']}, {row['long']}"
+            magnitude_str = f"{row['mag']} {row['mag_type']}"
+
+            # Highlight detected earthquakes in green if simplified is False
+            if not simplified and row['detected']:
+                row_html = f"""
+                <tr style="color: green;">
+                    <td>{time_str}</td>
+                    <td>{location_str}</td>
+                    <td>{magnitude_str}</td>
+                </tr>
+                """
+            else:
+                row_html = f"""
+                <tr>
+                    <td>{time_str}</td>
+                    <td>{location_str}</td>
+                    <td>{magnitude_str}</td>
+                </tr>
+                """
+
+            catalog_html += row_html
+
+        catalog_html += "</table>"
+
+        return catalog_html
+
+    def daily_report_event_details_html(self):
+        """
+        Generate the event details section of the daily report for a specific date.
+
+        Returns:
+        - str: The HTML string for the event details section of the report.
+        """
+        filtered_df = self.df[
+            (self.df['date'] == self.date_str) & (self.df['catalogued'] == True) & (self.df['detected'] == True)]
+
+        all_event_details_html = ""
+
+        for _, row in filtered_df.iterrows():
+            # Add page break before each event detail
+            all_event_details_html += f'<div class="page-break">{EventReport.event_details_html(row, self.simplified, self.p_only)}</div>'
+
+        return all_event_details_html
+
+    def assemble_daily_report_html(self):
+        """
+        Generate the HTML content for the daily report by combining the header, catalog, and event details sections.
+
+        This method constructs the full HTML content for a daily report by integrating the HTML segments generated
+        by `daily_report_header_html`, `daily_report_catalog_html`, and `daily_report_event_details_html`. The
+        generated HTML includes styling for various elements such as headers, paragraphs, images, and tables.
+
+        Returns:
+        --------
+        str:
+            The full HTML content as a string, ready for rendering or saving as an HTML file.
+        """
+        header_html = self.daily_report_header_html()
+        catalog_html = self.daily_report_catalog_html(self.simplified)
+        event_details_html = self.daily_report_event_details_html()
+
+        full_html_content = f"""
+        <html>
+        <head>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+                body {{
+                    font-family: 'Roboto', sans-serif;
+                    margin: 20px;
+                    padding: 0;
+                }}
+                h2 {{
+                    text-align: left;
+                    font-size: 20px;
+                    margin-bottom: 10px;
+                }}
+                h3 {{
+                    font-size: 16px;
+                    margin-bottom: 10px;
+                }}
+                p {{
+                    margin: 5px 0;
+                    display: inline-block;
+                    font-weight: bold;
+                }}
+                span.normal {{
+                    font-weight: normal;
+                    margin-right: 20px;
+                }}
+                img {{
+                    width: 100%;
+                    height: auto;
+                    margin: 20px 0;
+                }}
+                .earthquake-image {{
+                    width: 110%;
+                    height: auto;
+                    display: block;
+                    margin: 20px 0;
+                    transform: translateX(-5%);
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 10px 0;
+                    font-size: 12px;
+                }}
+                table, th, td {{
+                    border: 1px solid black;
+                }}
+                th, td {{
+                    padding: 5px;
+                    text-align: left;
+                }}
+                th {{
+                    background-color: #f2f2f2;
+                }}
+                .col1, .col3 {{
+                    width: 20%;
+                }}
+                .col2, .col4 {{
+                    width: 30%;
+                }}
+                .page-break {{
+                    page-break-before: always;
+                }}
+            </style>
+        </head>
+        <body>
+            {header_html}
+            {catalog_html}
+            {event_details_html}
+        </body>
+        </html>
+        """
+
+        return full_html_content
+
+    def export_daily_report_pdf(self, html_content):
+        """
+        Generate a PDF report from the provided HTML content and save it to the constructed report path.
+
+        This method converts the provided HTML content into a PDF file and saves it in the specified
+        directory with a filename based on the current date. The PDF generation is handled by the
+        `generate_pdf_buffer_from_html` method, which returns a buffer that is then written to disk.
+
+        Parameters:
+        -----------
+        html_content : str
+            The HTML content to be converted into a PDF.
+
+        Returns:
+        --------
+        str:
+            The path to the saved PDF file.
+        """
+        report_path = os.path.join(self.report_folder, f'daily_report_{self.date_str}.pdf')
+
+        pdf_buffer = self.generate_pdf_buffer_from_html(html_content)
+
+        with open(report_path, 'wb') as f:
+            f.write(pdf_buffer.read())
+
+        print(f"PDF generated and saved as {report_path}")
+        return report_path
+
+    def save_html_to_file(self, html_content):
+        """
+        Save the generated HTML content to a file in the appropriate directory.
+
+        This method writes the provided HTML content to a file, saving it with a name based on the
+        current date in the specified report folder. This file can then be used for further reference
+        or as an input for other processes.
+
+        Parameters:
+        -----------
+        html_content : str
+            The HTML content to be saved as a file.
+
+        Returns:
+        --------
+        str:
+            The path to the saved HTML file.
+        """
+        html_filename = f'daily_report_{self.date_str}.html'
+        html_file_path = os.path.join(self.report_folder, html_filename)
+
+        with open(html_file_path, 'w') as f:
+            f.write(html_content)
+
+        return html_file_path
+
+
+class EventReport(Report):
+    """
+    Class for generating event reports.
+
+    This class is responsible for creating detailed reports for seismic events. It
+    inherits from the `Report` base class and provides additional methods for
+    generating HTML content and visualizations specific to earthquake events.
+    """
+
+    def __init__(self, df_row):
+        """
+        Initialize an EventReport instance with a specific row of data.
+
+        Parameters:
+        -----------
+        df_row : pd.Series
+            The row of the DataFrame containing the earthquake details.
+        """
+        self.df_row = df_row
+
+    @staticmethod
+    def event_details_html(df_row, simplified, p_only):
+        """
+        Generate the complete event report including the header and earthquake details.
+
+        This method creates an HTML string that contains the header information and detailed
+        data about the earthquake event, such as the station details, event ID, and wave
+        arrival times. The HTML also includes an image plot associated with the event.
+
+        Parameters:
+        -----------
+        df_row : pd.Series
+            The row of the DataFrame containing the earthquake details.
+        simplified : bool, optional
+            If True, hides some lines depending on the p_only flag.
+        p_only : bool, optional
+            If True, hides S wave-related details.
+
+        Returns:
+        --------
+        str:
+            The complete HTML string for the event report.
+        """
+        # Generate the header section
+        report_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        network = df_row['network']
+        code = df_row['code']
+
+        header_html = f"""
+        <h3>Event Report For Earthquake {df_row['unique_id']}</h3>
+        <p><b>Station:</b> <span class="normal">{network}.{code}</span> 
+           <b>Issued At:</b> <span class="normal">{report_time}</span></p>
+        """
+
+        # Generate the event details section
+        plot_path = df_row['plot_path']
+
+        # Convert the time to a more readable format
+        readable_time = pd.to_datetime(df_row['time']).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Format the epicentral distance to two decimal places
+        formatted_distance = f"{df_row['epi_distance']:.2f}" if pd.notnull(df_row['epi_distance']) else 'N/A'
+
+        earthquake_info_html = f"""
+        <div style="page-break-before: always;"> <!-- Ensures a page break before each event -->
+            {header_html}
+            <img src="file:///{plot_path}" alt="Earthquake Image" class="earthquake-image"/>
+            <table>
+                <tr><th class="col1">Time:</th><td class="col2">{readable_time}</td>
+                    <th class="col3">Event ID:</th><td class="col4">{df_row['unique_id']}</td></tr>
+                <tr><th class="col1">Latitude, Longitude:</th><td class="col2">{df_row['lat']}, {df_row['long']}</td>
+                    <th class="col3">Epicentral Distance:</th><td class="col4">{formatted_distance} km</td></tr>
+        """
+
+        # If simplified is False, add the Provider and Resource ID row
+        if not simplified:
+            earthquake_info_html += f"""
+                <tr><th class="col1">Provider:</th><td class="col2">{df_row['provider']}</td>
+                    <th class="col3">Resource ID:</th><td class="col4">{df_row['event_id']}</td></tr>
+            """
+
+        earthquake_info_html += f"""
+                <tr><th class="col1">Depth:</th><td class="col2">{df_row['depth']} km</td>
+                    <th class="col3">Magnitude:</th><td class="col4">{df_row['mag']} {df_row['mag_type']}</td></tr>
+        """
+
+        # Add P-wave detected time and P-wave error
+        p_predicted_time = pd.to_datetime(df_row['p_predicted']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
+            df_row['p_predicted']) else 'N/A'
+        p_detected_time = pd.to_datetime(df_row['p_detected']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
+            df_row['p_detected']) else 'N/A'
+
+        earthquake_info_html += f"""
+                <tr><th class="col1">P Predicted Time:</th><td class="col2">{p_predicted_time}</td>
+                    <th class="col3">P Detected Time:</th><td class="col4">{p_detected_time}</td></tr>
+        """
+
+        # If not p_only, add S-wave detected time and S-wave error
+        if not p_only:
+            s_predicted_time = pd.to_datetime(df_row['s_predicted']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
+                df_row['s_predicted']) else 'N/A'
+            s_detected_time = pd.to_datetime(df_row['s_detected']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
+                df_row['s_detected']) else 'N/A'
+
+            earthquake_info_html += f"""
+                <tr><th class="col1">S Predicted Time:</th><td class="col2">{s_predicted_time}</td>
+                    <th class="col3">S Detected Time:</th><td class="col4">{s_detected_time}</td></tr>
+            """
+
+        # If simplified is False, include error and confidence details
+        if not simplified:
+            earthquake_info_html += f"""
+                <tr><th class="col1">P Time Error:</th><td class="col2">{df_row['p_error'] or 'N/A'}</td>
+                    <th class="col3">P Confidence:</th><td class="col4">{df_row['p_confidence'] or 'N/A'}</td></tr>
+            """
+            if not p_only:
+                earthquake_info_html += f"""
+                    <tr><th class="col1">S Time Error:</th><td class="col2">{df_row['s_error'] or 'N/A'}</td>
+                        <th class="col3">S Confidence:</th><td class="col4">{df_row['s_confidence'] or 'N/A'}</td></tr>
+                """
+
+        earthquake_info_html += "</table></div>"
+
+        return earthquake_info_html
+
+    def assemble_event_report_html(self, simplified, p_only):
+        """
+        Assemble the complete HTML content for the report.
+
+        This method combines the different sections of the event report into a
+        single HTML document that is ready for rendering or saving.
+
+        Returns:
+        --------
+        str:
+            The complete HTML string for the report.
+        """
+        # Generate the different sections of the report
+        event_full_html = self.event_details_html(self.df_row, simplified, p_only)
+
+        # Combine all parts into a single HTML document
+        full_html = f"""
+        <html>
+        <head>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+                body {{
+                    font-family: 'Roboto', sans-serif;
+                    margin: 20px;
+                    padding: 0;
+                    line-height: 1.5;  
+                }}
+                h2 {{
+                    text-align: left;
+                    font-size: 20px;
+                    margin-bottom: 5px;  
+                }}
+                p {{
+                    margin: 2px 0;  
+                    display: inline-block;
+                    font-weight: bold;
+                }}
+                span.normal {{
+                    font-weight: normal;
+                    margin-right: 20px;
+                }}
+                img {{
+                    width: 110%;
+                    height: auto;
+                    display: block;
+                    margin: 20px 0;
+                    transform: translateX(-5%);
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 5px 0;
+                    font-size: 12px;
+                }}
+                table, th, td {{
+                    border: 1px solid black;
+                }}
+                th, td {{
+                    padding: 5px;
+                    text-align: left;
+                }}
+                th {{
+                    background-color: #f2f2f2;
+                }}
+                .col1, .col3 {{
+                    width: 20%;
+                }}
+                .col2, .col4 {{
+                    width: 30%;
+                }}
+                .page-break {{
+                    page-break-before: always;
+                }}
+            </style>
+        </head>
+        <body>
+            {event_full_html}
+        </body>
+        </html>
+        """
+        return full_html
+
+    def plot_waveform(self, starttime, endtime, ax=None, p_only=False):
+        """
+        Plot the normalized waveform around the detected and predicted P-wave and S-wave times.
+
+        This method slices the seismic data stream between the given start and end times,
+        then plots the normalized waveform. If specified, it highlights the detected and
+        predicted arrival times for P-waves and S-waves.
+
+        Parameters:
+        -----------
+        starttime : UTCDateTime
+            The start time for slicing the stream.
+        endtime : UTCDateTime
+            The end time for slicing the stream.
+        ax : matplotlib.axes._subplots.AxesSubplot, optional
+            Axes to plot on. If None, a new figure is created.
+        p_only : bool, optional
+            If True, only plot P-wave times; otherwise, plot both P-wave and S-wave times.
+
+        Returns:
+        --------
+        matplotlib.axes._subplots.AxesSubplot:
+            The axis with the plotted waveform.
+        """
+        df_row = self.df_row
+        try:
+            date_str = df_row['date']
+            network = df_row['network']
+            code = df_row['code']
+
+            base_dir = os.getcwd()
+            stream_file_name = f"{date_str}_{network}.{code}..Z.processed.mseed"
+            stream_path = os.path.join(base_dir, 'data', f'{network}.{code}', date_str, stream_file_name)
+
+            stream = read(stream_path)
+            trace = stream.slice(starttime=starttime, endtime=endtime)
+
+            if len(trace) == 0:
+                print("No data in the trace.")
+                return None
+
+            start_time = trace[0].stats.starttime
+            end_time = trace[0].stats.endtime
+
+            if ax is None:
+                fig, ax = plt.subplots(figsize=(13, 4))
+
+            ax.plot(trace[0].times(), trace[0].data / np.amax(np.abs(trace[0].data)), 'k', label=trace[0].stats.channel)
+            ax.set_ylabel('Normalized Amplitude')
+
+            # Plot P-wave detected and predicted times
+            for t, color, style, label in [(df_row['p_detected'], "C0", "-", "Detected P Arrival"),
+                                           (df_row['p_predicted'], "C0", "--", "Predicted P Arrival")]:
+                if pd.notna(t):
+                    t_utc = UTCDateTime(t)
+                    ax.axvline(x=t_utc - start_time, color=color, linestyle=style, label=label, linewidth=0.8)
+
+            if not p_only:
+                # Plot S-wave detected and predicted times
+                for t, color, style, label in [(df_row['s_detected'], "C1", "-", "Detected S Arrival"),
+                                               (df_row['s_predicted'], "C1", "--", "Predicted S Arrival")]:
+                    if pd.notna(t):
+                        t_utc = UTCDateTime(t)
+                        ax.axvline(x=t_utc - start_time, color=color, linestyle=style, label=label, linewidth=0.8)
+
+            ax.set_xlim(0, end_time - start_time)
+
+            num_ticks = 5
+            x_ticks = np.linspace(0, end_time - start_time, num_ticks)
+            x_labels = [(start_time + t).strftime('%H:%M:%S') for t in x_ticks]
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels(x_labels, rotation=0)
+
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc='upper right')
+
+            return ax
+
+        except Exception as e:
+            print(f"Error plotting waveform: {e}")
+            return None
+
+    def plot_prediction_confidence(self, starttime, endtime, ax=None, p_only=False):
+        """
+        Plot the prediction confidence for P and S waves from the annotated stream.
+
+        This method generates a plot of the prediction confidence levels for P-waves and S-waves
+        over a specified time range. The plot is derived from the annotated seismic data stream.
+
+        Parameters:
+        -----------
+        starttime : UTCDateTime
+            The start time for slicing the stream.
+        endtime : UTCDateTime
+            The end time for slicing the stream.
+        ax : matplotlib.axes._subplots.AxesSubplot, optional
+            Axes to plot on. If None, a new figure is created.
+        p_only : bool, optional
+            If True, only plot P-wave and Detection; otherwise, plot both P-wave and S-wave.
+
+        Returns:
+        --------
+        matplotlib.axes._subplots.AxesSubplot:
+            The axis with the plotted prediction confidence.
+        """
+        df_row = self.df_row
+        try:
+            date_str = df_row['date']
+            network = df_row['network']
+            code = df_row['code']
+
+            base_dir = os.getcwd()
+            annotated_stream_file_name = f"{date_str}_{network}.{code}..Z.processed.annotated.mseed"
+            annotated_stream_path = os.path.join(base_dir, 'data', f'{network}.{code}', date_str,
+                                                 annotated_stream_file_name)
+
+            annotated_stream = read(annotated_stream_path)
+            sliced_annotated_stream = annotated_stream.slice(starttime=starttime, endtime=endtime)
+
+            if len(sliced_annotated_stream) == 0:
+                print("No data in the annotated stream.")
+                return None
+
+            if ax is None:
+                fig, ax = plt.subplots(figsize=(13, 4))
+
+            for pred_trace in sliced_annotated_stream:
+                model_name, pred_class = pred_trace.stats.channel.split("_")
+                if pred_class == "N":
+                    continue  # Skip noise traces
+                if p_only and pred_class == "S":
+                    continue  # Skip S-wave traces if p_only is True
+                c = {"P": "C0", "S": "C1", "De": "#008000"}.get(pred_class, "black")
+                offset = pred_trace.stats.starttime - starttime
+                label = "Detection" if pred_class == "De" else pred_class
+                ax.plot(offset + pred_trace.times(), pred_trace.data, label=label, c=c)
+            ax.set_ylabel("Prediction Confidence")
+            ax.legend(loc='upper right')
+            ax.set_ylim(0, 1.1)
+
+            num_ticks = 5
+            x_ticks = np.linspace(0, endtime - starttime, num_ticks)
+            x_labels = [(starttime + t).strftime('%H:%M:%S') for t in x_ticks]
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels(x_labels, rotation=0)
+
+            return ax
+
+        except Exception as e:
+            print(f"Error plotting prediction confidence: {e}")
+            return None
+
+    def plot_spectrogram(self, starttime, endtime, ax=None):
+        """
+        Plot the spectrogram for the given time range.
+
+        This method generates a spectrogram plot for the seismic data within the specified
+        time range, showing the distribution of frequencies over time.
+
+        Parameters:
+        -----------
+        starttime : UTCDateTime
+            The start time for slicing the stream.
+        endtime : UTCDateTime
+            The end time for slicing the stream.
+        ax : matplotlib.axes._subplots.AxesSubplot, optional
+            Axes to plot on. If None, a new figure is created.
+
+        Returns:
+        --------
+        matplotlib.axes._subplots.AxesSubplot:
+            The axis with the plotted spectrogram.
+        """
+        df_row = self.df_row
+        try:
+            date_str = df_row['date']
+            network = df_row['network']
+            code = df_row['code']
+
+            base_dir = os.getcwd()
+            stream_file_name = f"{date_str}_{network}.{code}..Z.processed.mseed"
+            stream_path = os.path.join(base_dir, 'data', f'{network}.{code}', date_str, stream_file_name)
+
+            stream = read(stream_path)
+            trace = stream.slice(starttime=starttime, endtime=endtime)
+
+            if len(trace) == 0:
+                print("No data in the trace.")
+                return None
+
+            if ax is None:
+                fig, ax = plt.subplots(figsize=(13, 4))
+
+            ax.specgram(trace[0].data, NFFT=1024, Fs=trace[0].stats.sampling_rate, noverlap=512, cmap='viridis')
+            ax.set_ylabel('Frequency [Hz]')
+            ax.set_xlabel('Time [s]')
+
+            start_time = trace[0].stats.starttime
+            end_time = trace[0].stats.endtime
+            num_ticks = 5
+            x_ticks = np.linspace(0, end_time - start_time, num_ticks)
+            x_labels = [(start_time + t).strftime('%H:%M:%S') for t in x_ticks]
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels(x_labels, rotation=0)
+
+            return ax
+
+        except Exception as e:
+            print(f"Error plotting spectrogram: {e}")
+            return None
+
+    def plot_event(self, waveform=True, confidence=True, spectrogram=True, p_only=False):
+        """
+        Plot the event waveform, prediction confidence, and spectrogram, then save the combined plot.
+
+        This method generates a comprehensive plot that includes the waveform, prediction
+        confidence, and spectrogram for a seismic event. The plots can be customized to
+        include only specific components, and the resulting image is saved to a specified
+        directory.
+
+        Parameters:
+        -----------
+        waveform : bool, optional
+            Whether to plot the waveform.
+        confidence : bool, optional
+            Whether to plot the prediction confidence.
+        spectrogram : bool, optional
+            Whether to plot the spectrogram.
+        p_only : bool, optional
+            If True, only consider P-wave for time range; otherwise, consider both P and S waves.
+
+        Returns:
+        --------
+        str:
+            The path to the saved combined plot.
+        """
+        df_row = self.df_row
+        try:
+            if p_only:
+                # p_only=True: Only consider P-wave times with fixed 10-second buffers
+                p_times = [UTCDateTime(df_row['p_predicted']) if pd.notna(df_row['p_predicted']) else None,
+                           UTCDateTime(df_row['p_detected']) if pd.notna(df_row['p_detected']) else None]
+                valid_times = [t for t in p_times if t is not None]
+
+                if not valid_times:
+                    print("Missing P-wave time data.")
+                    return None
+
+                starttime = min(valid_times) - 5
+                endtime = max(valid_times) + 5
+
+            else:
+                # p_only=False: Consider both P-wave and S-wave times with larger buffers
+                p_times = [UTCDateTime(df_row['p_predicted']) if pd.notna(df_row['p_predicted']) else None,
+                           UTCDateTime(df_row['p_detected']) if pd.notna(df_row['p_detected']) else None]
+                s_times = [UTCDateTime(df_row['s_predicted']) if pd.notna(df_row['s_predicted']) else None,
+                           UTCDateTime(df_row['s_detected']) if pd.notna(df_row['s_detected']) else None]
+                valid_times = [t for t in p_times + s_times if t is not None]
+
+                if not valid_times:
+                    print("Missing P and S wave time data.")
+                    return None
+
+                starttime = min(valid_times) - 10
+                endtime = max(valid_times) + 10
+
+            starttime = UTCDateTime(starttime)
+            endtime = UTCDateTime(endtime)
+
+            num_plots = sum([waveform, confidence, spectrogram])
+            fig, axes = plt.subplots(num_plots, 1, figsize=(13, 4 * num_plots), sharex=True)
+            if num_plots == 1:
+                axes = [axes]
+
+            plot_idx = 0
+            if waveform:
+                self.plot_waveform(starttime, endtime, ax=axes[plot_idx], p_only=p_only)
+                plot_idx += 1
+
+            if confidence:
+                self.plot_prediction_confidence(starttime, endtime, ax=axes[plot_idx], p_only=p_only)
+                plot_idx += 1
+
+            if spectrogram:
+                self.plot_spectrogram(starttime, endtime, ax=axes[plot_idx])
+
+            event_time = pd.to_datetime(df_row['time']).strftime('%Y-%m-%d %H:%M:%S')
+
+            # Reduce the distance between the title and the first subplot
+            plt.suptitle(
+                f"Earthquake {df_row['unique_id']} - Time: {event_time} - Location: {df_row['lat']:.2f}, {df_row['long']:.2f} - Magnitude: {df_row['mag']} {df_row['mag_type']}",
+                fontsize=16, y=0.95)
+
+            plt.subplots_adjust(top=0.90)  # Adjust the top spacing to reduce the gap
+
+            base_dir = os.getcwd()
+            network = df_row['network']
+            code = df_row['code']
+            date_str = df_row['date']
+            plot_path = os.path.join(base_dir, 'data', f'{network}.{code}', date_str, 'report')
+            os.makedirs(plot_path, exist_ok=True)
+            file_path = os.path.join(plot_path, f'{df_row["unique_id"]}_event_plot.png')
+            plt.savefig(file_path, bbox_inches='tight', pad_inches=0.2)
+            plt.close(fig)
+
+            return file_path
+
+        except Exception as e:
+            print(f"Error plotting event: {e}")
+            return None
