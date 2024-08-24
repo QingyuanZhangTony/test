@@ -257,7 +257,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
 
     update_status(30, "Generating event plots...", update_status_func)
     # Generate and save event plots for all detected and catalogued earthquakes
-    for _, row in df[(df['catalogued'] == True) & (df['detected'] == True)].iterrows():
+    for _, row in df[(df['catalogued'] == True) & (df['detected'] == True) & (df['date'] == date_str)].iterrows():
         event_report = EventReport(row)
 
         # If simplified, do not plot confidence
