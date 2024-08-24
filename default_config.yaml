@@ -11,9 +11,9 @@ minmag: '0.0'
 maxmag: '10.0'
 apply_bandpass: true
 network: AM
-tolerance_p: 15.0
+tolerance_p: 25.0
 simplified: false
-p_threshold: 0.2
+p_threshold: 0.1
 overwrite: true
 radmin: '0.0'
 denoise: true
