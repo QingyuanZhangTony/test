@@ -1,3 +1,4 @@
+import datetime
 import os
 
 import time
@@ -256,7 +257,9 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     daily_report.plot_catalogue()
 
     update_status(30, "Generating event plots...", update_status_func)
+
     # Generate and save event plots for all detected and catalogued earthquakes
+    date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
     for _, row in df[(df['catalogued'] == True) & (df['detected'] == True) & (df['date'] == date_str)].iterrows():
         event_report = EventReport(row)
 
@@ -267,6 +270,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     update_status(60, "Creating report HTML...", update_status_func)
     # Assemble the HTML content for the daily report
     report_html = daily_report.assemble_daily_report_html()
+    report_html = Report.convert_images_to_base64(report_html)
 
     update_status(80, "Creating PDF from HTML...", update_status_func)
     # Generate the PDF buffer from the HTML content
@@ -277,7 +281,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
         pdf_file_path = daily_report.export_daily_report_pdf(report_html)
         update_status(100, "Report generation complete and saved to file.", update_status_func)
         print("-" * 50)
-        return pdf_file_path
+        return pdf_buffer
     else:
         update_status(100, "Report generation complete. PDF buffer created.", update_status_func)
         print("-" * 50)
@@ -477,6 +481,8 @@ def render_interactive_map(df, station_info, title="Detected Catalogued Earthqua
         df_filtered['formatted_time'] = df_filtered['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
         successfully_detected = df_filtered[(df_filtered['catalogued'] == True) & (df_filtered['detected'] == True)]
+        # Recalculate 'p_error' for successfully detected events
+        successfully_detected['p_error'] = successfully_detected['p_error'].fillna(0).abs()
 
         # Determine the color axis based on the selected option
         if color_by_option == 'Magnitude':
@@ -520,7 +526,7 @@ def render_interactive_map(df, station_info, title="Detected Catalogued Earthqua
                 "epi_distance": True,
                 "depth": True,
                 "Prediction Confidence": True,
-                "P Error": df_filtered['p_error']  # Show absolute p_error in hover data
+                "P Error": successfully_detected['p_error']   # Show absolute p_error in hover data
             },
             color_continuous_scale=px.colors.sequential.Sunset,  # Changed color scale
             size_max=10,

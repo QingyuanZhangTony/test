@@ -15,6 +15,9 @@ from bs4 import BeautifulSoup
 from matplotlib.legend_handler import HandlerLine2D
 from obspy import read, UTCDateTime
 
+import requests
+import os
+
 import account_credentials as credentials
 
 import datetime
@@ -600,6 +603,23 @@ class EventReport(Report):
         # Generate the event details section
         plot_path = df_row['plot_path']
 
+        # Attempt to download the image if it's a remote URL
+        if plot_path.startswith("http"):
+            local_plot_path = os.path.join("temp_images", os.path.basename(plot_path))
+            os.makedirs("temp_images", exist_ok=True)
+            try:
+                response = requests.get(plot_path)
+                if response.status_code == 200:
+                    with open(local_plot_path, 'wb') as f:
+                        f.write(response.content)
+                    plot_path = local_plot_path  # Update to local path
+                    print(f"Downloaded image to {local_plot_path}")
+                else:
+                    print(f"Failed to download image from {plot_path}: HTTP {response.status_code}")
+            except Exception as e:
+                print(f"Exception occurred while downloading image from {plot_path}: {e}")
+                plot_path = None
+
         # Convert the time to a more readable format
         readable_time = pd.to_datetime(df_row['time']).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -609,7 +629,18 @@ class EventReport(Report):
         earthquake_info_html = f"""
         <div style="page-break-before: always;"> <!-- Ensures a page break before each event -->
             {header_html}
-            <img src="file:///{plot_path}" alt="Earthquake Image" class="earthquake-image"/>
+        """
+
+        if plot_path:
+            earthquake_info_html += f"""
+            <img src="{plot_path}" alt="Earthquake Image" class="earthquake-image"/>
+            """
+        else:
+            earthquake_info_html += f"""
+            <p><b>Image could not be loaded for this event.</b></p>
+            """
+
+        earthquake_info_html += f"""
             <table>
                 <tr><th class="col1">Time:</th><td class="col2">{readable_time}</td>
                     <th class="col3">Event ID:</th><td class="col4">{df_row['unique_id']}</td></tr>

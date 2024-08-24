@@ -105,7 +105,7 @@ def read_summary_csv(network, code, deployed=True):
             print(f"An error occurred while accessing GitHub path '{station_folder}': {str(e)}")
             return None
 
-        pattern = r'processed_earthquakes_summary'  # 匹配包含 'processed_earthquakes_summary' 的文件名
+        pattern = r'summary'  # 匹配包含 'summary' 的文件名
 
         try:
             # 从 GitHub 读取文件
@@ -137,8 +137,8 @@ def read_summary_csv(network, code, deployed=True):
         base_dir = os.getcwd()
         station_folder_path = os.path.join(base_dir, station_folder)
 
-        # 查找包含 'processed_earthquakes_summary' 的文件
-        pattern = r'processed_earthquakes_summary'  # 匹配包含 'processed_earthquakes_summary' 的文件名
+        # 查找包含 'summary' 的文件
+        pattern = r'summary'  # 匹配包含 'summary' 的文件名
 
         try:
             for filename in os.listdir(station_folder_path):
@@ -167,32 +167,37 @@ def load_summary_to_session():
     if df is None:
         st.warning("Total events summary file not found or could not be loaded. Creating an empty summary file...")
 
-        # 尝试创建一个空的 summary 文件
-        success = create_empty_summary_file(
-            network=st.session_state.network,
-            code=st.session_state.station_code,
-            deployed=True  # 如果你是在部署模式下运行，请确保这里设置为 True
-        )
-
-        if success:
-            st.success("Empty summary file created successfully.")
-            df = read_summary_csv(
+        # 尝试创建一个空的 summary 文件，只有在文件完全不存在时才创建
+        if not check_file_exists_in_github(os.path.join("data", f"{st.session_state.network}.{st.session_state.station_code}")):
+            success = create_empty_summary_file(
                 network=st.session_state.network,
-                code=st.session_state.station_code
+                code=st.session_state.station_code,
+                deployed=True  # 如果你是在部署模式下运行，请确保这里设置为 True
             )
 
-            if df is None:
-                st.error("Failed to load the newly created empty summary file.")
-                return "not_exist"
+            if success:
+                st.success("Empty summary file created successfully.")
+                df = read_summary_csv(
+                    network=st.session_state.network,
+                    code=st.session_state.station_code
+                )
+
+                if df is None:
+                    st.error("Failed to load the newly created empty summary file.")
+                    return "not_exist"
+                else:
+                    st.session_state.df = df
+                    return "exist_empty"
             else:
-                st.session_state.df = df
-                return "exist_empty"
+                st.error("Failed to create an empty summary file.")
+                return "not_exist"
         else:
-            st.error("Failed to create an empty summary file.")
+            st.error("Summary file exists but could not be loaded.")
             return "not_exist"
 
     if df.empty:
         st.warning("Total events summary file is empty.")
+        st.session_state.df = df  # 仍然加载空的 DataFrame 以便后续操作
         return "exist_empty"
     else:
         st.session_state.df = df
