@@ -431,7 +431,7 @@ with generate_report_container:
                 st.session_state.simplified,
                 st.session_state.p_only,
                 update_status_func=update_progress,
-                save_to_file=False  # Return buffer instead of saving to file
+                save_to_file=True  # Return buffer instead of saving to file
             )
 
             st.session_state.report_generated = True
