@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 
@@ -6,11 +7,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from github import GithubException
 from obspy.clients.fdsn import Client
 from obspy.clients.fdsn.header import FDSNNoDataException, FDSNException
 from obspy.core import UTCDateTime
-
+from github_file import upload_file_to_github, check_file_exists_in_github, write_file_to_github, g, repo, \
+    download_file_from_github, repo,REPO_NAME
 from earthquake import Earthquake
+
 
 
 class CatalogData:
@@ -57,7 +61,6 @@ class CatalogData:
         Catalog : obspy.core.event.Catalog or None
             The catalog object containing earthquake events if successful, or None if no data was retrieved.
         """
-
 
         client = Client(provider)
         starttime = self.station.report_date - 30 * 5  # 5 minutes before midnight on the day before
@@ -361,7 +364,7 @@ class CatalogData:
 
         return fig
 
-    def update_summary_csv(self):
+    def update_summary_csv2(self):
         date_str = self.station.report_date.strftime('%Y-%m-%d')
         station_network = self.station.network
         station_code = self.station.code
@@ -450,7 +453,6 @@ class CatalogData:
         if radius_km > max_radius_km:
             radius_km = max_radius_km
 
-
         # Format dates for the URL
         date1 = starttime.strftime('%Y-%m-%d')
         date2 = endtime.strftime('%Y-%m-%d')
@@ -473,3 +475,120 @@ class CatalogData:
         )
 
         return url
+
+    def update_summary_csv(self, deployed=True):
+        date_str = self.station.report_date.strftime('%Y-%m-%d')
+        station_network = self.station.network
+        station_code = self.station.code
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        path = self.station.report_folder
+        repo_dir = os.path.join("data", f"{station_network}.{station_code}")
+
+        if not os.path.exists(path):
+            os.makedirs(path, exist_ok=True)
+
+        headers = ["network", "code", "date", "unique_id", "provider", "event_id", "time", "lat", "long", "mag",
+                   "mag_type", "depth", "epi_distance", "p_predicted", "s_predicted", "p_detected", "s_detected",
+                   "p_confidence", "s_confidence", "p_error", "s_error", "catalogued", "detected", "plot_path"]
+
+        # 设置 plot_path
+        for eq in self.all_day_earthquakes:
+            if eq.detected and eq.catalogued:
+                if deployed:
+                    # 在 GitHub 上构建带有 ?raw=true 的原始链接
+                    file_name = f"{eq.unique_id}_event_plot.png"
+                    eq.plot_path = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{repo_dir}/{date_str}/report/{file_name}?raw=true"
+                else:
+                    # 本地路径
+                    file_path = os.path.join(self.station.report_folder, f"{eq.unique_id}_event_plot.png")
+                    eq.plot_path = file_path
+
+        new_data = pd.DataFrame([{
+            "network": station_network,
+            "code": station_code,
+            "date": date_str,
+            "unique_id": eq.unique_id,
+            "provider": eq.provider,
+            "event_id": eq.event_id,
+            "time": eq.time.isoformat(),
+            "lat": eq.lat,
+            "long": eq.long,
+            "mag": eq.mag,
+            "mag_type": eq.mag_type,
+            "depth": eq.depth,
+            "epi_distance": eq.epi_distance,
+            "p_predicted": eq.p_predicted.isoformat() if eq.p_predicted else None,
+            "s_predicted": eq.s_predicted.isoformat() if eq.s_predicted else None,
+            "p_detected": eq.p_detected.isoformat() if eq.p_detected else None,
+            "s_detected": eq.s_detected.isoformat() if eq.s_detected else None,
+            "p_confidence": eq.p_confidence,
+            "s_confidence": eq.s_confidence,
+            "p_error": eq.p_error,
+            "s_error": eq.s_error,
+            "catalogued": eq.catalogued,
+            "detected": eq.detected,
+            "plot_path": eq.plot_path
+        } for eq in self.all_day_earthquakes], columns=headers)
+
+        if deployed:
+            # 添加时间戳到 total summary 文件名
+            summary_file_path = f"{repo_dir}/processed_earthquakes_summary_{timestamp}.csv"
+            repo_dir = repo_dir.replace("\\", "/")
+            print(f"Checking GitHub directory: {repo_dir}")
+
+            # 初始化合并数据的 DataFrame
+            existing_data = pd.DataFrame(columns=headers)
+
+            try:
+                # 获取目录内容并查找旧的 summary 文件
+                contents = repo.get_contents(repo_dir)
+                for content in contents:
+                    if "processed_earthquakes_summary" in content.name:
+                        print(f"Old file found: {content.name}. Downloading for merging...")
+                        old_summary_path = os.path.join(path, os.path.basename(content.name))  # 使用 os.path.basename 获取文件名
+                        download_file_from_github(content.path, old_summary_path)
+                        temp_data = pd.read_csv(old_summary_path)
+                        existing_data = pd.concat([existing_data, temp_data], ignore_index=True)
+                        print(f"Old summary file '{content.name}' merged.")
+                        print(f"Deleting old summary file: {content.name}")
+                        repo.delete_file(content.path, f"Delete old summary file {content.name}", content.sha)
+                        print(f"File '{content.name}' deleted.")
+                        # 删除本地临时文件
+                        os.remove(old_summary_path)
+            except GithubException as e:
+                print(f"An error occurred while accessing GitHub path '{repo_dir}': {str(e)}")
+                print(f"Skipping deletion. Proceeding to upload new summary.")
+
+            # 合并新的数据
+            existing_data = existing_data[existing_data['date'] != new_data['date'].iloc[0]]
+            full_columns = set(new_data.columns).union(set(existing_data.columns))
+            new_data = new_data.reindex(columns=full_columns, fill_value=pd.NA)
+            existing_data = existing_data.reindex(columns=full_columns, fill_value=pd.NA)
+
+            updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+
+            # 上传合并后的 summary 文件
+            updated_summary_path = os.path.join(path, "updated_summary.csv")
+            updated_data.to_csv(updated_summary_path, index=False)
+            upload_file_to_github(updated_summary_path, summary_file_path)
+            print(f"New summary file '{summary_file_path}' uploaded to GitHub.")
+
+        else:
+            # 添加时间戳到 total summary 文件名
+            total_file_path = os.path.join(self.station.station_folder,
+                                           f"processed_earthquakes_summary_{timestamp}.csv")
+
+            if os.path.exists(total_file_path):
+                existing_data = pd.read_csv(total_file_path)
+                existing_data = existing_data[existing_data['date'] != new_data['date'].iloc[0]]
+            else:
+                existing_data = pd.DataFrame(columns=headers)
+
+            full_columns = set(new_data.columns).union(set(existing_data.columns))
+            new_data = new_data.reindex(columns=full_columns, fill_value=pd.NA)
+            existing_data = existing_data.reindex(columns=full_columns, fill_value=pd.NA)
+
+            updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+            updated_data.to_csv(total_file_path, index=False)
+
+            print(f"Processed summary saved to {total_file_path}")

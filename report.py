@@ -19,6 +19,8 @@ import account_credentials as credentials
 
 import datetime
 
+from github_file import upload_file_to_github, REPO_NAME
+
 class Report:
     """
     Base class for generating reports.
@@ -157,21 +159,23 @@ class DailyReport(Report):
         os.makedirs(report_folder, exist_ok=True)
         return report_folder
 
-    def plot_catalogue(self):
+    def plot_catalogue(self, deployed=True):
         """
         Plot a world map with all catalogued events and the station location.
 
         Returns:
-        - str: The path to the saved plot image.
+        - str: The path to the saved plot image or the GitHub URL if deployed.
         """
         earthquakes = self.df[(self.df['catalogued'] == True) & (self.df['date'] == self.date_str)]
         title = f"Catalogue Events on {self.date_str}"
-        output_path = os.path.join(self.report_folder, f'catalogued_plot_{self.date_str}.png')
+        file_name = f'catalogued_plot_{self.date_str}.png'
+        output_path = os.path.join(self.report_folder, file_name)
 
-        # Define station location
+        # 从 df 中读取 station 相关信息
+        network = self.df.iloc[0]['network']
+        code = self.df.iloc[0]['code']
         latitude = self.station_lat
         longitude = self.station_lon
-        code = self.df.iloc[0]['code']
 
         # Create the plot
         fig, ax = plt.subplots(figsize=(10, 7),
@@ -234,9 +238,17 @@ class DailyReport(Report):
         plt.tight_layout()
         plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
-        # Save and close the plot
+        # Save the plot locally
         plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
         plt.close()
+
+        if deployed:
+            # Define the GitHub path and upload the file
+            repo_file_path = os.path.join('data', f'{network}.{code}', self.date_str, 'report', file_name)
+            repo_file_path = repo_file_path.replace("\\", "/")  # Ensure GitHub-compatible path
+            upload_file_to_github(output_path, repo_file_path)
+            print(f"Uploaded to GitHub: {repo_file_path}")
+            return f"https://raw.githubusercontent.com/{REPO_NAME}/main/{repo_file_path}?raw=true"
 
         return output_path
 
@@ -268,29 +280,40 @@ class DailyReport(Report):
         """
         return header_html
 
-    def daily_report_catalog_html(self, simplified=True):
+    def daily_report_catalog_html(self, simplified=True, deployed=True):
         """
         Generate the catalog section of the daily report, including a table of earthquakes.
 
         Args:
         - simplified (bool): Whether to display only earthquakes that are both catalogued and detected. Defaults to True.
+        - deployed (bool): If True, the image path will be the GitHub URL; otherwise, it will be a local file path.
 
         Returns:
         - str: The HTML string for the catalog section of the report.
         """
-        image_path = os.path.join(self.report_folder, f'catalogued_plot_{self.date_str}.png')
 
-        # Filter the DataFrame based on the simplified flag
+        # 构建 image_path，根据部署模式选择本地路径或 GitHub URL
+        if deployed:
+            network = self.df.iloc[0]['network']
+            code = self.df.iloc[0]['code']
+            file_name = f'catalogued_plot_{self.date_str}.png'
+            repo_file_path = os.path.join('data', f'{network}.{code}', self.date_str, 'report', file_name)
+            repo_file_path = repo_file_path.replace("\\", "/")
+            image_path = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{repo_file_path}?raw=true"
+        else:
+            image_path = os.path.join(self.report_folder, f'catalogued_plot_{self.date_str}.png')
+
+        # 根据 simplified 标志过滤 DataFrame
         if simplified:
             filtered_df = self.df[
                 (self.df['date'] == self.date_str) & (self.df['detected'] == True) & (self.df['catalogued'] == True)]
         else:
             filtered_df = self.df[(self.df['date'] == self.date_str) & (self.df['catalogued'] == True)]
 
-        # Construct the HTML for the catalog section
+        # 构建 catalog 部分的 HTML
         catalog_html = f"""
         <h3>Catalogued Earthquake Plot</h3>
-        <img src="file:///{image_path}" alt="Catalogued Earthquake Plot for {self.date_str}" />
+        <img src="{image_path}" alt="Catalogued Earthquake Plot for {self.date_str}" />
         <h4>Detected and Catalogued Earthquakes</h4>
         <table>
             <tr>
@@ -300,13 +323,13 @@ class DailyReport(Report):
             </tr>
         """
 
-        # Iterate over the filtered DataFrame rows to add each earthquake's data to the table
+        # 遍历 filtered DataFrame 行，添加每个地震事件的数据到表格中
         for _, row in filtered_df.iterrows():
             time_str = pd.to_datetime(row['time']).strftime('%Y-%m-%d %H:%M:%S')
             location_str = f"{row['lat']}, {row['long']}"
             magnitude_str = f"{row['mag']} {row['mag_type']}"
 
-            # Highlight detected earthquakes in green if simplified is False
+            # 如果 simplified 为 False，则将 detected 的地震事件以绿色显示
             if not simplified and row['detected']:
                 row_html = f"""
                 <tr style="color: green;">
@@ -917,14 +940,13 @@ class EventReport(Report):
             print(f"Error plotting spectrogram: {e}")
             return None
 
-    def plot_event(self, waveform=True, confidence=True, spectrogram=True, p_only=False):
+    def plot_event(self, waveform=True, confidence=True, spectrogram=True, p_only=False, deployed=True):
         """
         Plot the event waveform, prediction confidence, and spectrogram, then save the combined plot.
 
         This method generates a comprehensive plot that includes the waveform, prediction
         confidence, and spectrogram for a seismic event. The plots can be customized to
-        include only specific components, and the resulting image is saved to a specified
-        directory.
+        include only specific components, and the resulting image is saved locally or uploaded to GitHub.
 
         Parameters:
         -----------
@@ -936,11 +958,13 @@ class EventReport(Report):
             Whether to plot the spectrogram.
         p_only : bool, optional
             If True, only consider P-wave for time range; otherwise, consider both P and S waves.
+        deployed : bool, optional
+            If True, the plot is uploaded to GitHub; otherwise, it is saved locally.
 
         Returns:
         --------
         str:
-            The path to the saved combined plot.
+            The path to the saved combined plot, or the GitHub path if deployed.
         """
         df_row = self.df_row
         try:
@@ -1007,9 +1031,20 @@ class EventReport(Report):
             date_str = df_row['date']
             plot_path = os.path.join(base_dir, 'data', f'{network}.{code}', date_str, 'report')
             os.makedirs(plot_path, exist_ok=True)
-            file_path = os.path.join(plot_path, f'{df_row["unique_id"]}_event_plot.png')
+            file_name = f'{df_row["unique_id"]}_event_plot.png'
+            file_path = os.path.join(plot_path, file_name)
+
+            # Save the plot locally
             plt.savefig(file_path, bbox_inches='tight', pad_inches=0.2)
             plt.close(fig)
+
+            if deployed:
+                # Define the GitHub path and upload the file
+                repo_file_path = os.path.join('data', f'{network}.{code}', date_str, 'report', file_name)
+                repo_file_path = repo_file_path.replace("\\", "/")  # Ensure GitHub-compatible path
+                upload_file_to_github(file_path, repo_file_path)
+                print(f"Uploaded to GitHub: {repo_file_path}")  # Output the uploaded path for debugging
+                return repo_file_path
 
             return file_path
 

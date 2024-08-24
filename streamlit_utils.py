@@ -1,39 +1,160 @@
+import base64
+import datetime
 import json
 import os
-
+import re
+import io
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yaml
+from github import GithubException
+
+from github_file import repo, upload_file_to_github
 
 
-def read_summary_csv(network, code):
+def check_file_exists_in_github(repo_file_path):
+    """
+    检查 GitHub 仓库中的文件是否存在。
+
+    Args:
+    - repo_file_path (str): 仓库中的文件路径。
+
+    Returns:
+    - bool: 如果文件存在返回 True，否则返回 False。
+    """
+    try:
+        repo.get_contents(repo_file_path)
+        return True
+    except GithubException as e:
+        if e.status == 404:
+            return False
+        else:
+            raise
+
+def create_empty_summary_file(network, code, deployed=True):
+    """
+    在指定的目录中创建一个包含 headers 的空 CSV 文件。
+
+    Args:
+    - network (str): 网络代码。
+    - code (str): 站点代码。
+    - deployed (bool): 如果为 True，则在 GitHub 上创建文件；否则在本地创建。
+
+    Returns:
+    - str: 创建的文件路径（如果在本地创建）或 GitHub 文件路径（如果在 GitHub 上创建）。
+    """
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    repo_dir = os.path.join("data", f"{network}.{code}")
+    headers = ["network", "code", "date", "unique_id", "provider", "event_id", "time", "lat", "long", "mag",
+               "mag_type", "depth", "epi_distance", "p_predicted", "s_predicted", "p_detected", "s_detected",
+               "p_confidence", "s_confidence", "p_error", "s_error", "catalogued", "detected", "plot_path"]
+
+    # 创建一个空的 DataFrame，并设置 columns
+    empty_data = pd.DataFrame(columns=headers)
+
+    if deployed:
+        # 添加时间戳到文件名
+        summary_file_path = f"{repo_dir}/processed_earthquakes_summary_{timestamp}.csv"
+        repo_dir = repo_dir.replace("\\", "/")
+
+        # 将空的 DataFrame 保存为 CSV 文件并上传到 GitHub
+        temp_file_path = "temp_empty_summary.csv"
+        empty_data.to_csv(temp_file_path, index=False)
+        upload_file_to_github(temp_file_path, summary_file_path)
+        print(f"Empty summary file '{summary_file_path}' uploaded to GitHub.")
+
+        return summary_file_path
+
+    else:
+        # 本地路径添加时间戳
+        station_folder = os.path.join(os.getcwd(), "data", f"{network}.{code}")
+        if not os.path.exists(station_folder):
+            os.makedirs(station_folder, exist_ok=True)
+
+        total_file_path = os.path.join(station_folder, f"processed_earthquakes_summary_{timestamp}.csv")
+        empty_data.to_csv(total_file_path, index=False)
+        print(f"Empty summary file created locally at '{total_file_path}'.")
+
+        return total_file_path
+
+def read_summary_csv(network, code, deployed=True):
     """
     Static method to read the processed earthquakes summary CSV file.
 
     Args:
     - network (str): The network code.
     - code (str): The station code.
+    - deployed (bool): If True, read from GitHub; otherwise, read from the local filesystem.
 
     Returns:
     - pd.DataFrame: DataFrame containing the processed earthquake summary data.
     """
-    # Construct the path to the 'processed_earthquakes_summary.csv' file
-    base_dir = os.getcwd()
-    station_folder = os.path.join(base_dir, "data", f"{network}.{code}")
-    file_path = os.path.join(station_folder, 'processed_earthquakes_summary.csv')
 
-    # Read the CSV file into a DataFrame
-    try:
-        df = pd.read_csv(file_path)
-        return df
-    except FileNotFoundError:
-        print(f"File not found: {file_path}")
-        return None
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        return None
+    station_folder = os.path.join("data", f"{network}.{code}")
 
+    if deployed:
+        station_folder = station_folder.replace("\\", "/")  # 仅在部署时确保路径适用于 GitHub
+
+        try:
+            contents = repo.get_contents(station_folder)
+            if not contents:
+                print(f"No contents found in the GitHub path: {station_folder}")
+                return None
+        except GithubException as e:
+            print(f"An error occurred while accessing GitHub path '{station_folder}': {str(e)}")
+            return None
+
+        pattern = r'processed_earthquakes_summary'  # 匹配包含 'processed_earthquakes_summary' 的文件名
+
+        try:
+            # 从 GitHub 读取文件
+            summary_file = None
+            for content in contents:
+                if pattern in content.name:
+                    summary_file = content.path
+                    break
+
+            if summary_file and check_file_exists_in_github(summary_file):
+                try:
+                    # 下载并读取CSV文件内容
+                    file_content = base64.b64decode(repo.get_contents(summary_file).content).decode("utf-8")
+                    df = pd.read_csv(io.StringIO(file_content))  # 使用 io.StringIO
+                    return df
+                except Exception as e:
+                    print(f"An error occurred while reading the file from GitHub: {str(e)}")
+                    return None
+            else:
+                print("Summary file not found in GitHub repository.")
+                return None
+
+        except GithubException as e:
+            print(f"An error occurred while accessing GitHub: {str(e)}")
+            return None
+
+    else:
+        # 从本地文件系统读取文件
+        base_dir = os.getcwd()
+        station_folder_path = os.path.join(base_dir, station_folder)
+
+        # 查找包含 'processed_earthquakes_summary' 的文件
+        pattern = r'processed_earthquakes_summary'  # 匹配包含 'processed_earthquakes_summary' 的文件名
+
+        try:
+            for filename in os.listdir(station_folder_path):
+                if pattern in filename:
+                    file_path = os.path.join(station_folder_path, filename)
+                    df = pd.read_csv(file_path)
+                    return df
+        except FileNotFoundError:
+            print(f"Directory not found: {station_folder_path}")
+            return None
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
+            return None
+
+    print("Summary file not found.")
+    return None
 
 def load_summary_to_session():
     # 尝试加载事件汇总 CSV
@@ -44,16 +165,38 @@ def load_summary_to_session():
 
     # 如果 DataFrame 是 None，表示文件未找到或加载失败
     if df is None:
-        st.warning("Total events summary file not found or could not be loaded.")
-        return "not_exist"
-    elif df.empty:
+        st.warning("Total events summary file not found or could not be loaded. Creating an empty summary file...")
+
+        # 尝试创建一个空的 summary 文件
+        success = create_empty_summary_file(
+            network=st.session_state.network,
+            code=st.session_state.station_code,
+            deployed=True  # 如果你是在部署模式下运行，请确保这里设置为 True
+        )
+
+        if success:
+            st.success("Empty summary file created successfully.")
+            df = read_summary_csv(
+                network=st.session_state.network,
+                code=st.session_state.station_code
+            )
+
+            if df is None:
+                st.error("Failed to load the newly created empty summary file.")
+                return "not_exist"
+            else:
+                st.session_state.df = df
+                return "exist_empty"
+        else:
+            st.error("Failed to create an empty summary file.")
+            return "not_exist"
+
+    if df.empty:
         st.warning("Total events summary file is empty.")
         return "exist_empty"
     else:
         st.session_state.df = df
         return "exist_loaded"
-
-
 
 
 # Function to load settings from a YAML file

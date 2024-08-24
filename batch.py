@@ -17,7 +17,7 @@ if __name__ == '__main__':
     default_config = load_config_to_df()
 
     # Calculate the date range from July 1st of the current year to yesterday
-    start_date = datetime.date(2024, 6, 1)
+    start_date = datetime.date(2024, 7, 6)
     end_date = datetime.date.today() - datetime.timedelta(days=1)
 
     current_date = start_date
@@ -63,7 +63,7 @@ if __name__ == '__main__':
             # Download station data
             result = download_station_data_logic(
                 station,
-                overwrite=overwrite
+                overwrite= overwrite
             )
 
             if result['status'] == 'success' or result['status'] == 'exists':
@@ -112,7 +112,9 @@ if __name__ == '__main__':
 
                 pdf_buffer = generate_report_logic(
                     filtered_df, report_date_str,
-                    latitude, longitude, fill_map, simplified, p_only, save_to_file=False)
+                    latitude, longitude, fill_map, simplified, p_only, save_to_file=True)
+
+
 
                 print("Report generated.")
 
