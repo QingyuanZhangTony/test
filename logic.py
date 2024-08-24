@@ -306,6 +306,7 @@ def generate_event_report_logic(selected_eq, network, station_code, simplified=F
 
     # Generate the HTML content for the event report
     html_content = event_report.assemble_event_report_html(simplified, p_only)
+    html_content = Report.convert_images_to_base64(html_content)
 
     # Generate a PDF buffer from the HTML content
     pdf_buffer = Report.generate_pdf_buffer_from_html(html_content)
