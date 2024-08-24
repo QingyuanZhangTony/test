@@ -10,9 +10,8 @@ from streamlit_utils import load_config_to_session, initialize_state_defaults, l
 import os
 import warnings
 
-# 读取汇总数据到 session
-load_summary_to_session()
-warnings.simplefilter(action='ignore', category=FutureWarning)
+
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -22,6 +21,9 @@ load_config_to_session()
 # Initialize state variables
 initialize_state_defaults()
 
+# 读取汇总数据到 session
+load_summary_to_session()
+warnings.simplefilter(action='ignore', category=FutureWarning)
 # Application Title
 st.title("Daily Earthquake Identification")
 

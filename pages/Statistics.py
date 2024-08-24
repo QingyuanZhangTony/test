@@ -107,8 +107,11 @@ if summary_status == "exist_loaded":
         df_detected = df_filtered[(df_filtered['catalogued'] == True) & (df_filtered['detected'] == True)].copy()
 
         # Calculate the maximum magnitude and adjust the Y-axis domain
-        max_magnitude = df_detected['mag'].max()
-        y_max = (max_magnitude // 1) + 1  # Round up to the nearest whole number
+        if not df_detected.empty:
+            max_magnitude = df_detected['mag'].max()
+            y_max = (max_magnitude // 1) + 1 if pd.notnull(max_magnitude) else 10  # Use a default value if NaN
+        else:
+            y_max = 10  # Default value if df_detected is empty
 
         base_chart = alt.Chart(df_detected).mark_point(
             filled=True,
