@@ -466,33 +466,55 @@ class DailyReport(Report):
 
         return full_html_content
 
-    def export_daily_report_pdf(self, html_content):
+    def export_daily_report_pdf(self, html_content, deployed=True):
         """
-        Generate a PDF report from the provided HTML content and save it to the constructed report path.
+        Generate a PDF report from the provided HTML content and save it or upload it to GitHub.
 
-        This method converts the provided HTML content into a PDF file and saves it in the specified
-        directory with a filename based on the current date. The PDF generation is handled by the
-        `generate_pdf_buffer_from_html` method, which returns a buffer that is then written to disk.
+        This method converts the provided HTML content into a PDF file. Depending on the `deployed`
+        flag, it either saves the PDF locally or uploads it to the specified GitHub repository.
 
         Parameters:
         -----------
         html_content : str
             The HTML content to be converted into a PDF.
+        deployed : bool, optional
+            If True, upload the PDF to GitHub; otherwise, save it locally. Defaults to True.
 
         Returns:
         --------
         str:
-            The path to the saved PDF file.
+            The path to the saved PDF file or the GitHub URL if deployed.
         """
-        report_path = os.path.join(self.report_folder, f'daily_report_{self.date_str}.pdf')
+        file_name = f'daily_report_{self.date_str}.pdf'
+        report_path = os.path.join(self.report_folder, file_name)
 
+        # Generate the PDF buffer
         pdf_buffer = self.generate_pdf_buffer_from_html(html_content)
 
-        with open(report_path, 'wb') as f:
-            f.write(pdf_buffer.read())
+        if deployed:
+            # If deployed, upload the PDF to GitHub
+            repo_dir = os.path.join("data", f"{self.df.iloc[0]['network']}.{self.df.iloc[0]['code']}", self.date_str,
+                                    'report')
+            repo_file_path = os.path.join(repo_dir, file_name).replace("\\", "/")
 
-        print(f"PDF generated and saved as {report_path}")
-        return report_path
+            # Save the PDF to a temporary local file before uploading
+            with open(report_path, 'wb') as f:
+                f.write(pdf_buffer.read())
+
+            # Upload the PDF to GitHub
+            upload_file_to_github(report_path, repo_file_path)
+            print(f"PDF uploaded to GitHub: {repo_file_path}")
+
+            # Return the GitHub URL
+            return f"https://raw.githubusercontent.com/{REPO_NAME}/main/{repo_file_path}?raw=true"
+
+        else:
+            # If not deployed, save the PDF locally
+            with open(report_path, 'wb') as f:
+                f.write(pdf_buffer.read())
+
+            print(f"PDF generated and saved as {report_path}")
+            return report_path
 
     def save_html_to_file(self, html_content):
         """
