@@ -17,7 +17,7 @@ if __name__ == '__main__':
     default_config = load_config_to_df()
 
     # Calculate the date range from July 1st of the current year to yesterday
-    start_date = datetime.date(2024, 7, 6)
+    start_date = datetime.date(2024, 7, 1)
     end_date = datetime.date.today() - datetime.timedelta(days=1)
 
     current_date = start_date
