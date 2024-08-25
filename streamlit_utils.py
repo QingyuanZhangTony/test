@@ -9,6 +9,10 @@ import pandas as pd
 import streamlit as st
 import yaml
 from github import GithubException
+import yaml
+import os
+import base64
+import io
 
 from github_file import repo, upload_file_to_github
 
@@ -31,6 +35,7 @@ def check_file_exists_in_github(repo_file_path):
             return False
         else:
             raise
+
 
 def create_empty_summary_file(network, code, deployed=True):
     """
@@ -77,6 +82,7 @@ def create_empty_summary_file(network, code, deployed=True):
         print(f"Empty summary file created locally at '{total_file_path}'.")
 
         return total_file_path
+
 
 def read_summary_csv(network, code, deployed=True):
     """
@@ -156,6 +162,7 @@ def read_summary_csv(network, code, deployed=True):
     print("Summary file not found.")
     return None
 
+
 def load_summary_to_session():
     # 尝试加载事件汇总 CSV
     df = read_summary_csv(
@@ -168,7 +175,8 @@ def load_summary_to_session():
         st.warning("Total events summary file not found or could not be loaded. Creating an empty summary file...")
 
         # 尝试创建一个空的 summary 文件，只有在文件完全不存在时才创建
-        if not check_file_exists_in_github(os.path.join("data", f"{st.session_state.network}.{st.session_state.station_code}")):
+        if not check_file_exists_in_github(
+                os.path.join("data", f"{st.session_state.network}.{st.session_state.station_code}")):
             success = create_empty_summary_file(
                 network=st.session_state.network,
                 code=st.session_state.station_code,
@@ -197,7 +205,7 @@ def load_summary_to_session():
 
     if df.empty:
         st.warning("Total events summary file is empty.")
-        st.session_state.df = df  # 仍然加载空的 DataFrame 以便后续操作
+        st.session_state.df = df  #
         return "exist_empty"
     else:
         st.session_state.df = df
@@ -205,12 +213,41 @@ def load_summary_to_session():
 
 
 # Function to load settings from a YAML file
-def load_config_to_df(filename='default_config.yaml'):
-    with open(filename, 'r') as file:
-        config = yaml.safe_load(file)
+
+
+def load_config_to_df(filename='default_config.yaml', deployed=True):
+    """
+    Load the configuration from a YAML file.
+
+    Args:
+    - filename (str): The name of the YAML file.
+    - deployed (bool): If True, load the file from GitHub; otherwise, load it from the local filesystem.
+
+    Returns:
+    - dict: A dictionary containing the configuration.
+    """
+
+    if deployed:
+        # GitHub mode: Load the file from the GitHub repository
+        try:
+            contents = repo.get_contents(filename)
+            file_content = base64.b64decode(contents.content).decode("utf-8")
+            config = yaml.safe_load(io.StringIO(file_content))
+        except GithubException as e:
+            print(f"An error occurred while accessing GitHub path '{filename}': {str(e)}")
+            return None
+    else:
+        # Local mode: Load the file from the local filesystem
+        if not os.path.exists(filename):
+            print(f"File not found: {filename}")
+            return None
+        with open(filename, 'r') as file:
+            config = yaml.safe_load(file)
+
     # Convert list to comma-separated string for specific fields if necessary
     if 'catalog_providers' in config and isinstance(config['catalog_providers'], list):
         config['catalog_providers'] = ', '.join(config['catalog_providers'])
+
     return config
 
 
@@ -224,17 +261,54 @@ def load_config_to_session():
             st.session_state[key] = value
 
 
-def save_config_to_yaml(session_state, filename='default_config.yaml'):
-    # Load the existing configuration to determine which keys should be saved
-    with open(filename, 'r') as file:
-        existing_config = yaml.safe_load(file)
+def save_config_to_yaml(session_state, filename='default_config.yaml', deployed=True):
+    """
+    Save the configuration from the session state to a YAML file.
+
+    Args:
+    - session_state (dict): The session state containing the configuration.
+    - filename (str): The name of the YAML file.
+    - deployed (bool): If True, save the file to GitHub; otherwise, save it to the local filesystem.
+    """
+
+    if deployed:
+        # GitHub mode: Load the existing configuration from GitHub
+        try:
+            contents = repo.get_contents(filename)
+            existing_config_content = base64.b64decode(contents.content).decode("utf-8")
+            existing_config = yaml.safe_load(io.StringIO(existing_config_content))
+        except GithubException as e:
+            print(f"An error occurred while accessing GitHub path '{filename}': {str(e)}")
+            return False
+    else:
+        # Local mode: Load the existing configuration from the local filesystem
+        if not os.path.exists(filename):
+            print(f"File not found: {filename}")
+            return False
+        with open(filename, 'r') as file:
+            existing_config = yaml.safe_load(file)
 
     # Create a new config dictionary that only includes keys present in the existing config
     config = {key: session_state[key] for key in existing_config if key in session_state}
 
-    with open(filename, 'w') as file:
-        # Save the filtered configuration dictionary to the YAML file
-        yaml.safe_dump(config, file, default_flow_style=False, sort_keys=False)
+    if deployed:
+        # Convert the config dictionary to YAML format
+        config_yaml = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
+
+        # Upload the updated configuration back to GitHub
+        try:
+            repo.update_file(contents.path, "Update configuration file", config_yaml, contents.sha)
+            print(f"Configuration saved to GitHub: {filename}")
+        except GithubException as e:
+            print(f"An error occurred while saving the configuration to GitHub: {str(e)}")
+            return False
+    else:
+        # Save the filtered configuration dictionary to the local YAML file
+        with open(filename, 'w') as file:
+            yaml.safe_dump(config, file, default_flow_style=False, sort_keys=False)
+        print(f"Configuration saved locally: {filename}")
+
+    return True
 
 
 def initialize_state_defaults():
@@ -408,4 +482,3 @@ def update_status(progress, message, update_progress=None):
     print(message)  # 命令行输出步骤
     if update_progress:
         update_progress(progress, message)  # 更新UI的进度条
-

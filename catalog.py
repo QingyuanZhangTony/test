@@ -12,9 +12,8 @@ from obspy.clients.fdsn import Client
 from obspy.clients.fdsn.header import FDSNNoDataException, FDSNException
 from obspy.core import UTCDateTime
 from github_file import upload_file_to_github, check_file_exists_in_github, write_file_to_github, g, repo, \
-    download_file_from_github, repo,REPO_NAME
+    download_file_from_github, repo, REPO_NAME
 from earthquake import Earthquake
-
 
 
 class CatalogData:
@@ -476,7 +475,7 @@ class CatalogData:
 
         return url
 
-    def update_summary_csv(self, deployed=True):
+    def update_summary_csv(self, deployed=True, max_attempts=3):
         date_str = self.station.report_date.strftime('%Y-%m-%d')
         station_network = self.station.network
         station_code = self.station.code
@@ -545,19 +544,17 @@ class CatalogData:
                 for content in contents:
                     if "processed_earthquakes_summary" in content.name:
                         print(f"Old file found: {content.name}. Downloading for merging...")
-                        old_summary_path = os.path.join(path, os.path.basename(content.name))  # 使用 os.path.basename 获取文件名
+                        old_summary_path = os.path.join(path,
+                                                        os.path.basename(content.name))  # 使用 os.path.basename 获取文件名
                         download_file_from_github(content.path, old_summary_path)
                         temp_data = pd.read_csv(old_summary_path)
                         existing_data = pd.concat([existing_data, temp_data], ignore_index=True)
                         print(f"Old summary file '{content.name}' merged.")
-                        print(f"Deleting old summary file: {content.name}")
-                        repo.delete_file(content.path, f"Delete old summary file {content.name}", content.sha)
-                        print(f"File '{content.name}' deleted.")
                         # 删除本地临时文件
                         os.remove(old_summary_path)
             except GithubException as e:
                 print(f"An error occurred while accessing GitHub path '{repo_dir}': {str(e)}")
-                print(f"Skipping deletion. Proceeding to upload new summary.")
+                print(f"Skipping merging. Proceeding to upload new summary.")
 
             # 合并新的数据
             existing_data = existing_data[existing_data['date'] != new_data['date'].iloc[0]]
@@ -570,11 +567,36 @@ class CatalogData:
             # 上传合并后的 summary 文件
             updated_summary_path = os.path.join(path, "updated_summary.csv")
             updated_data.to_csv(updated_summary_path, index=False)
-            upload_file_to_github(updated_summary_path, summary_file_path)
-            print(f"New summary file '{summary_file_path}' uploaded to GitHub.")
+
+            # 尝试多次上传新文件
+            for attempt in range(max_attempts):
+                try:
+                    upload_file_to_github(updated_summary_path, summary_file_path)
+                    print(f"New summary file '{summary_file_path}' uploaded to GitHub.")
+                    break  # 上传成功后退出循环
+                except GithubException as e:
+                    print(f"Attempt {attempt + 1} to upload file failed: {str(e)}")
+                    if attempt < max_attempts - 1:
+                        print("Retrying...")
+                        time.sleep(2)  # 等待2秒后再尝试
+                    else:
+                        print("Max attempts reached. Could not upload the new summary file.")
+                        return
+
+            # 上传成功后删除旧的 summary 文件
+            try:
+                contents = repo.get_contents(repo_dir)
+                for content in contents:
+                    if "processed_earthquakes_summary" in content.name and content.name != os.path.basename(
+                            summary_file_path):
+                        print(f"Deleting old summary file: {content.name}")
+                        repo.delete_file(content.path, f"Delete old summary file {content.name}", content.sha)
+                        print(f"File '{content.name}' deleted.")
+            except GithubException as e:
+                print(f"An error occurred while deleting old summary files: {str(e)}")
 
         else:
-            # 添加时间戳到 total summary 文件名
+            # 本地模式处理 summary 文件
             total_file_path = os.path.join(self.station.station_folder,
                                            f"processed_earthquakes_summary_{timestamp}.csv")
 
