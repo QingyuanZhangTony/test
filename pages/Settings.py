@@ -13,7 +13,8 @@ for key, value in default_config.items():
 # Page title
 st.title("Settings")
 st.divider()
-
+st.write("Test user name: username")
+st.write("Test password: password")
 
 def check_password():
     """Returns `True` if the user had a correct password."""
@@ -58,8 +59,6 @@ if not check_password():
 settings_container = st.container()
 with settings_container:
     st.header("Settings")
-    st.write("Test user name: username")
-    st.write("Test password: password")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Station Settings", "Catalog Settings", "Stream Processing", "Event Detection", "Report Generation", "Email Settings"])
 
     # Station Settings Tab
