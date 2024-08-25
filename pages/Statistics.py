@@ -70,6 +70,26 @@ if summary_status == "exist_loaded":
 
         # Apply p_error filter
         df_filtered = df_filtered.loc[df_filtered['p_error'].abs() <= p_error_threshold]
+    st.divider()
+
+    # 新的 Statistics 容器，显示过滤前后的地震数量
+    with st.container():
+        st.subheader("Statistics")
+
+        # 过滤前的地震数量，确保 catalogued 和 detected 都为 True
+        total_earthquakes_before_filter = st.session_state.df[
+            (st.session_state.df['catalogued'] == True) & (st.session_state.df['detected'] == True)
+            ].shape[0]
+
+        # 过滤后的地震数量
+        total_earthquakes_after_filter = df_filtered[
+            (df_filtered['catalogued'] == True) & (df_filtered['detected'] == True)
+            ].shape[0]
+
+        # 显示统计信息
+        st.metric(label="Total Catalogued & Detected Earthquakes Before Filtering",
+                  value=total_earthquakes_before_filter)
+        st.metric(label="Total Catalogued & Detected Earthquakes After Filtering", value=total_earthquakes_after_filter)
 
     st.divider()
 
