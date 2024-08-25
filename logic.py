@@ -306,10 +306,10 @@ def generate_event_report_logic(selected_eq, network, station_code, simplified=F
 
     # Generate the HTML content for the event report
     html_content = event_report.assemble_event_report_html(simplified, p_only)
-    html_content = Report.convert_images_to_base64(html_content)
+    event_report_html = Report.convert_images_to_base64(html_content)
 
     # Generate a PDF buffer from the HTML content
-    pdf_buffer = Report.generate_pdf_buffer_from_html(html_content)
+    pdf_buffer = Report.generate_pdf_buffer_from_html(event_report_html)
 
     # Create a file name for the report
     unique_id = selected_eq['unique_id']
@@ -622,6 +622,7 @@ def handle_point_selection(selected_point, df_filtered):
                                                                   st.session_state.get('simplified', 'N/A'),
                                                                   st.session_state.get('p_only', 'N/A'))
             earthquake_info_html = Report.convert_images_to_base64(earthquake_info_html)
+
             st.markdown(earthquake_info_html, unsafe_allow_html=True)
 
             # Directly trigger the PDF download

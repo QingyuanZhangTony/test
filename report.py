@@ -23,12 +23,13 @@ import datetime
 
 from github_file import upload_file_to_github, REPO_NAME
 
-
 import streamlit as st
+
 EMAIL_ADDRESS = st.secrets["EMAIL_ADDRESS"]
 EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]
 SMTP_SERVER = st.secrets["SMTP_SERVER"]
 SMTP_PORT = st.secrets["SMTP_PORT"]
+
 
 class Report:
     """
@@ -133,7 +134,7 @@ class Report:
 
 
 class DailyReport(Report):
-    def __init__(self, df, date_str, station_lat, station_lon, fill_map=False, simplified = False, p_only = False):
+    def __init__(self, df, date_str, station_lat, station_lon, fill_map=False, simplified=False, p_only=False):
         """
         Initialize the DailyReport class with the provided parameters.
 
@@ -573,7 +574,7 @@ class EventReport(Report):
         self.df_row = df_row
 
     @staticmethod
-    def event_details_html(df_row, simplified, p_only):
+    def event_details_html(df_row, simplified, p_only, deployed=True):
         """
         Generate the complete event report including the header and earthquake details.
 
@@ -589,6 +590,8 @@ class EventReport(Report):
             If True, hides some lines depending on the p_only flag.
         p_only : bool, optional
             If True, hides S wave-related details.
+        deployed : bool, optional
+            If True, expects the image to be a URL; otherwise, treats it as a local file path.
 
         Returns:
         --------
@@ -607,24 +610,7 @@ class EventReport(Report):
         """
 
         # Generate the event details section
-        plot_path = df_row['plot_path']
-
-        # Attempt to download the image if it's a remote URL
-        if plot_path.startswith("http"):
-            local_plot_path = os.path.join("temp_images", os.path.basename(plot_path))
-            os.makedirs("temp_images", exist_ok=True)
-            try:
-                response = requests.get(plot_path)
-                if response.status_code == 200:
-                    with open(local_plot_path, 'wb') as f:
-                        f.write(response.content)
-                    plot_path = local_plot_path  # Update to local path
-                    print(f"Downloaded image to {local_plot_path}")
-                else:
-                    print(f"Failed to download image from {plot_path}: HTTP {response.status_code}")
-            except Exception as e:
-                print(f"Exception occurred while downloading image from {plot_path}: {e}")
-                plot_path = None
+        plot_path = df_row['plot_path'].replace("\\", "/")  # 确保URL格式的路径正确
 
         # Convert the time to a more readable format
         readable_time = pd.to_datetime(df_row['time']).strftime('%Y-%m-%d %H:%M:%S')
@@ -637,13 +623,16 @@ class EventReport(Report):
             {header_html}
         """
 
-        if plot_path:
+        if deployed:
+            # 部署模式，直接使用URL
             earthquake_info_html += f"""
-            <img src="{plot_path}" alt="Earthquake Image" class="earthquake-image"/>
+            <img src="{plot_path}" alt="Event Plot" class="earthquake-image"/>
             """
         else:
+            # 本地模式，将路径转换为合适的本地文件路径
+            local_plot_path = f"file:///{plot_path}"
             earthquake_info_html += f"""
-            <p><b>Image could not be loaded for this event.</b></p>
+            <img src="{local_plot_path}" alt="Event Plot" class="earthquake-image"/>
             """
 
         earthquake_info_html += f"""
@@ -654,7 +643,7 @@ class EventReport(Report):
                     <th class="col3">Epicentral Distance:</th><td class="col4">{formatted_distance} km</td></tr>
         """
 
-        # If simplified is False, add the Provider and Resource ID row
+        # 如果 simplified 为 False，添加 Provider 和 Resource ID 行
         if not simplified:
             earthquake_info_html += f"""
                 <tr><th class="col1">Provider:</th><td class="col2">{df_row['provider']}</td>
@@ -666,7 +655,7 @@ class EventReport(Report):
                     <th class="col3">Magnitude:</th><td class="col4">{df_row['mag']} {df_row['mag_type']}</td></tr>
         """
 
-        # Add P-wave detected time and P-wave error
+        # 添加 P-wave detected time 和 P-wave error
         p_predicted_time = pd.to_datetime(df_row['p_predicted']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
             df_row['p_predicted']) else 'N/A'
         p_detected_time = pd.to_datetime(df_row['p_detected']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
@@ -677,7 +666,7 @@ class EventReport(Report):
                     <th class="col3">P Detected Time:</th><td class="col4">{p_detected_time}</td></tr>
         """
 
-        # If not p_only, add S-wave detected time and S-wave error
+        # 如果 p_only 为 False，添加 S-wave detected time 和 S-wave error
         if not p_only:
             s_predicted_time = pd.to_datetime(df_row['s_predicted']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(
                 df_row['s_predicted']) else 'N/A'
@@ -689,7 +678,7 @@ class EventReport(Report):
                     <th class="col3">S Detected Time:</th><td class="col4">{s_detected_time}</td></tr>
             """
 
-        # If simplified is False, include error and confidence details
+        # 如果 simplified 为 False，添加 error 和 confidence 细节
         if not simplified:
             earthquake_info_html += f"""
                 <tr><th class="col1">P Time Error:</th><td class="col2">{df_row['p_error'] or 'N/A'}</td>
