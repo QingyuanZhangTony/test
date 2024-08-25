@@ -18,11 +18,17 @@ from obspy import read, UTCDateTime
 import requests
 import os
 
-import account_credentials as credentials
-
+import streamlit as st
 import datetime
 
 from github_file import upload_file_to_github, REPO_NAME
+
+
+import streamlit as st
+EMAIL_ADDRESS = st.secrets["EMAIL_ADDRESS"]
+EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]
+SMTP_SERVER = st.secrets["SMTP_SERVER"]
+SMTP_PORT = st.secrets["SMTP_PORT"]
 
 class Report:
     """
@@ -98,7 +104,7 @@ class Report:
             # Create the email message
             msg = MIMEMultipart('related')
             msg['Subject'] = "Daily Report"
-            msg['From'] = credentials.EMAIL_ADDRESS
+            msg['From'] = EMAIL_ADDRESS
             msg['To'] = recipient
 
             # Construct the file name using the report date
@@ -110,11 +116,11 @@ class Report:
             msg.attach(part)
 
             # Connect to SMTP server
-            smtp_obj = smtplib.SMTP(credentials.SMTP_SERVER, credentials.SMTP_PORT)
-            smtp_obj.login(credentials.EMAIL_ADDRESS, credentials.EMAIL_PASSWORD)
+            smtp_obj = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+            smtp_obj.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
 
             # Send the email
-            smtp_obj.sendmail(credentials.EMAIL_ADDRESS, recipient, msg.as_string())
+            smtp_obj.sendmail(EMAIL_ADDRESS, recipient, msg.as_string())
 
             # Disconnect from SMTP server
             smtp_obj.quit()
