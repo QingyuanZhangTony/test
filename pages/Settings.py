@@ -58,6 +58,8 @@ if not check_password():
 settings_container = st.container()
 with settings_container:
     st.header("Settings")
+    st.write("Test user name: username")
+    st.write("Test password: password")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Station Settings", "Catalog Settings", "Stream Processing", "Event Detection", "Report Generation", "Email Settings"])
 
     # Station Settings Tab
