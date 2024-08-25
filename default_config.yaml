@@ -15,7 +15,7 @@ tolerance_p: 20.0
 simplified: false
 p_threshold: 0.1
 overwrite: true
-radmin: '0.0'
+radmin: '0.1'
 denoise: true
 catalog_providers: IRIS, USGS, EMSC, GFZ, CENC
 detrend_linear: true
