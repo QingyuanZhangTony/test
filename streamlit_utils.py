@@ -6,6 +6,7 @@ import re
 import io
 import numpy as np
 import pandas as pd
+import requests
 import streamlit as st
 import yaml
 from github import GithubException
@@ -83,7 +84,6 @@ def create_empty_summary_file(network, code, deployed=True):
 
         return total_file_path
 
-
 def read_summary_csv(network, code, deployed=True):
     """
     Static method to read the processed earthquakes summary CSV file.
@@ -98,71 +98,48 @@ def read_summary_csv(network, code, deployed=True):
     - str: Status message indicating the result of the operation.
     """
 
-    station_folder = os.path.join("data", f"{network}.{code}")
+    station_folder = os.path.join("data", f"{network}.{code}").replace("\\", "/")
 
     if deployed:
-        station_folder = station_folder.replace("\\", "/")  # 仅在部署时确保路径适用于 GitHub
+        # 构建raw链接
+        summary_file_url = f"https://raw.githubusercontent.com/QingyuanZhangTony/test/main/{station_folder}/processed_earthquakes_summary.csv"
 
         try:
-            contents = repo.get_contents(station_folder)
-            if not contents:
-                print(f"No contents found in the GitHub path: {station_folder}")
-                return None, "not_found"
-        except GithubException as e:
-            print(f"An error occurred while accessing GitHub path '{station_folder}': {str(e)}")
-            return None, "error"
+            # 发送GET请求获取CSV内容
+            response = requests.get(summary_file_url)
+            response.raise_for_status()  # 如果请求失败，会抛出异常
 
-        pattern = r'summary.csv'  # 匹配包含 'summary' 的文件名
+            # 检查文件内容是否为空
+            if response.text.strip() == "":
+                return None, "file_empty"
 
-        try:
-            # 从 GitHub 读取文件
-            summary_file = None
-            for content in contents:
-                if pattern in content.name:
-                    summary_file = content.path
-                    break
-
-            if summary_file and check_file_exists_in_github(summary_file):
-                try:
-                    # 下载并读取CSV文件内容
-                    file_content = base64.b64decode(repo.get_contents(summary_file).content).decode("utf-8")
-                    df = pd.read_csv(io.StringIO(file_content))  # 使用 io.StringIO
-                    return df, "loaded"
-                except Exception as e:
-                    print(f"An error occurred while reading the file from GitHub: {str(e)}")
-                    return None, "error_reading"
-            else:
-                print("Summary file not found in GitHub repository.")
-                return None, "not_found"
-
-        except GithubException as e:
-            print(f"An error occurred while accessing GitHub: {str(e)}")
-            return None, "error"
+            # 使用io.StringIO读取CSV数据
+            df = pd.read_csv(io.StringIO(response.text))
+            return df, "loaded"
+        except requests.exceptions.HTTPError as http_err:
+            print(f"HTTP error occurred while accessing {summary_file_url}: {str(http_err)}")
+            return None, "not_found"
+        except Exception as e:
+            print(f"An error occurred while reading the file from {summary_file_url}: {str(e)}")
+            return None, "error_reading"
 
     else:
         # 从本地文件系统读取文件
         base_dir = os.getcwd()
         station_folder_path = os.path.join(base_dir, station_folder)
 
-        # 查找包含 'summary' 的文件
-        pattern = r'summary'  # 匹配包含 'summary' 的文件名
-
         try:
-            for filename in os.listdir(station_folder_path):
-                if pattern in filename:
-                    file_path = os.path.join(station_folder_path, filename)
-                    df = pd.read_csv(file_path)
-                    return df, "loaded"
+            file_path = os.path.join(station_folder_path, "processed_earthquakes_summary.csv")
+            df = pd.read_csv(file_path)
+            return df, "loaded"
         except FileNotFoundError:
-            print(f"Directory not found: {station_folder_path}")
+            print(f"File not found: {file_path}")
             return None, "not_found"
         except Exception as e:
             print(f"An error occurred: {str(e)}")
             return None, "error_reading"
 
-    print("Summary file not found.")
     return None, "not_found"
-
 
 def load_summary_to_session():
     # 尝试加载事件汇总 CSV
