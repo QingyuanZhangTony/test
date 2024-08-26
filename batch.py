@@ -17,7 +17,7 @@ if __name__ == '__main__':
     default_config = load_config_to_df()
 
     # Calculate the date range from July 1st of the current year to yesterday
-    start_date = datetime.date(2024, 4, 1)
+    start_date = datetime.date(2024, 5, 1)
     end_date = datetime.date.today() - datetime.timedelta(days=1)
 
     current_date = start_date
@@ -108,6 +108,8 @@ if __name__ == '__main__':
 
                 # Read summary CSV and generate the report PDF
                 df, status = read_summary_csv(network, station_code)
+                print(df.head())
+
                 filtered_df = df[df['date'] == report_date_str]
 
                 pdf_buffer = generate_report_logic(

@@ -11,7 +11,7 @@ import streamlit as st
 import yaml
 from github import GithubException
 
-from github_file import repo, upload_file_to_github
+from github_file import repo, upload_file_to_github, REPO_NAME
 
 
 def check_file_exists_in_github(repo_file_path):
@@ -97,9 +97,12 @@ def read_summary_csv(network, code, deployed=True):
 
     station_folder = os.path.join("data", f"{network}.{code}").replace("\\", "/")
 
+    github_username = st.secrets["GITHUB_TOKEN"]
+    repo_name = st.secrets["REPO_NAME"]
+
     if deployed:
         # 构建raw链接
-        summary_file_url = f"https://raw.githubusercontent.com/QingyuanZhangTony/test/main/{station_folder}/processed_earthquakes_summary.csv"
+        summary_file_url = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{station_folder}/processed_earthquakes_summary.csv"
 
         try:
             # 发送GET请求获取CSV内容
@@ -125,8 +128,9 @@ def read_summary_csv(network, code, deployed=True):
         base_dir = os.getcwd()
         station_folder_path = os.path.join(base_dir, station_folder)
 
+        file_path = os.path.join(station_folder_path, "processed_earthquakes_summary.csv")
         try:
-            file_path = os.path.join(station_folder_path, "processed_earthquakes_summary.csv")
+
             df = pd.read_csv(file_path)
             return df, "loaded"
         except FileNotFoundError:
@@ -161,17 +165,13 @@ def load_summary_to_session():
 
             if success:
                 st.success("Empty summary file created successfully.")
-                df, status = read_summary_csv(
-                    network=st.session_state.network,
-                    code=st.session_state.station_code
-                )
-
-                if status != "loaded":
-                    st.error("Failed to load the newly created empty summary file.")
-                    return "not_exist"
-                else:
-                    st.session_state.df = df
-                    return "exist_empty"
+                # 创建一个空的 DataFrame，并设置 st.session_state.df
+                st.session_state.df = pd.DataFrame(columns=[
+                    "network", "code", "date", "unique_id", "provider", "event_id", "time", "lat", "long", "mag",
+                    "mag_type", "depth", "epi_distance", "p_predicted", "s_predicted", "p_detected", "s_detected",
+                    "p_confidence", "s_confidence", "p_error", "s_error", "catalogued", "detected", "plot_path"
+                ])
+                return "exist_empty"
             else:
                 st.error("Failed to create an empty summary file.")
                 return "not_exist"
@@ -185,7 +185,7 @@ def load_summary_to_session():
 
     if df.empty:
         st.warning("Total events summary file is empty.")
-        st.session_state.df = df  #
+        st.session_state.df = df
         return "exist_empty"
     else:
         st.session_state.df = df

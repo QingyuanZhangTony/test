@@ -24,3 +24,4 @@ s_threshold: 0.7
 fill_map: true
 email_recipient: 891578348@qq.com
 station_code: R50D6
+enable_automation: true
