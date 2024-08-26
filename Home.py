@@ -1,7 +1,10 @@
 import time
 import streamlit as st
 from station import Station
-from streamlit_utils import load_config_to_df, save_config_to_yaml, load_config_to_session
+from streamlit_utils import load_config_to_df, save_config_to_yaml, load_config_to_session, sidebar_navigation
+
+# Sidebar navigation
+sidebar_navigation()
 
 # Load default settings
 load_config_to_session()

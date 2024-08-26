@@ -1,19 +1,15 @@
 import base64
 import datetime
+import io
 import json
 import os
-import re
-import io
+
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 import yaml
 from github import GithubException
-import yaml
-import os
-import base64
-import io
 
 from github_file import repo, upload_file_to_github
 
@@ -84,6 +80,7 @@ def create_empty_summary_file(network, code, deployed=True):
 
         return total_file_path
 
+
 def read_summary_csv(network, code, deployed=True):
     """
     Static method to read the processed earthquakes summary CSV file.
@@ -140,6 +137,7 @@ def read_summary_csv(network, code, deployed=True):
             return None, "error_reading"
 
     return None, "not_found"
+
 
 def load_summary_to_session():
     # 尝试加载事件汇总 CSV
@@ -335,72 +333,6 @@ def initialize_state_defaults():
             st.session_state[key] = default_value
 
 
-def display_matched_earthquakes(df, simplified, p_only, date_str):
-    st.subheader("Catalog Plot of All Earthquakes")
-
-    # 过滤出符合条件的地震事件
-    matched_earthquakes = df[(df['detected'] == True) & (df['catalogued'] == True) & (df['date'] == date_str)]
-
-    if not matched_earthquakes.empty:
-        st.subheader("Matched Earthquakes Details")
-
-        if len(matched_earthquakes) > 5:
-            options = matched_earthquakes['unique_id'].tolist()
-            selected_eq_id = st.selectbox("Select Earthquake", options)
-            selected_earthquake = matched_earthquakes[matched_earthquakes['unique_id'] == selected_eq_id].iloc[0]
-            earthquakes_to_display = [(None, selected_earthquake)]
-        else:
-            tabs = st.tabs(matched_earthquakes['unique_id'].tolist())
-            earthquakes_to_display = zip(tabs, matched_earthquakes.iterrows())
-
-        for tab, earthquake in earthquakes_to_display:
-            container = tab if tab else st.container()
-            with container:
-                if earthquake['plot_path']:
-                    st.image(earthquake['plot_path'])
-
-                # First line: Time, Location, Magnitude
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.write(f"**Time:** {pd.to_datetime(earthquake['time']).strftime('%Y-%m-%d %H:%M:%S')}")
-                with col2:
-                    st.write(f"**Location:** {float(earthquake['lat']):.2f}, {float(earthquake['long']):.2f}")
-                with col3:
-                    st.write(f"**Magnitude:** {float(earthquake['mag']):.2f} {earthquake['mag_type']}")
-
-                if not simplified:
-                    event_id_display = earthquake['event_id'].split(':', 1)[-1] if ':' in earthquake['event_id'] else \
-                        earthquake['event_id']
-                    st.write(f"**Event ID:** {event_id_display}")
-
-                # Second line: Distance, Depth, Unique ID
-                col4, col5, col6 = st.columns(3)
-                with col4:
-                    st.write(f"**Epicentral Distance:** {float(earthquake['epi_distance']):.2f} km")
-                with col5:
-                    st.write(f"**Depth:** {float(earthquake['depth']):.2f} km")
-                with col6:
-                    st.write(f"**Unique ID:** {earthquake['unique_id']}")
-
-                # Third line: P Predicted, P Detected, P Error
-                col7, col8, col9 = st.columns(3)
-                with col7:
-                    st.write(
-                        f"**P Predicted:** {pd.to_datetime(earthquake['p_predicted']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(earthquake['p_predicted']) else 'N/A'}")
-                with col8:
-                    st.write(
-                        f"**P Detected:** {pd.to_datetime(earthquake['p_detected']).strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(earthquake['p_detected']) else 'N/A'}")
-                with col9:
-                    st.write(f"**P Error:** {earthquake['p_error']}")
-
-                # Fourth line: P Confidence (if applicable)
-                col10, col11, col12 = st.columns(3)
-                with col10:
-                    st.write(f"**P Confidence:** {earthquake['p_confidence']}")
-
-                # Add more lines or data as needed based on the DataFrame's content
-
-
 # Function to create evenly distributed ticks for different Color-by options
 def create_ticks(data):
     min_val = np.nanmin(data)
@@ -464,3 +396,127 @@ def update_status(progress, message, update_progress=None):
     print(message)  # 命令行输出步骤
     if update_progress:
         update_progress(progress, message)  # 更新UI的进度条
+
+
+def filtering_options_and_statistics(df, enable_date_filtering=True):
+    """
+    Render filtering options and statistics inside an expander.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the earthquake data.
+    - enable_date_filtering (bool): Whether to enable date filtering options.
+
+    Returns:
+    - pd.DataFrame: The filtered DataFrame.
+    """
+    with st.expander("Filtering Options and Statistics", expanded=False):
+        st.subheader("Filtering Options")
+
+        # Define confidence threshold slider
+        confidence_threshold = st.slider(
+            'Confidence Threshold',
+            min_value=0.0,
+            max_value=1.0,
+            value=0.3,
+            step=0.01,
+            key='confidence_slider'
+        )
+
+        # Define p_error slider
+        p_error_threshold = st.slider(
+            'P Error Threshold (seconds)',
+            min_value=0.0,
+            max_value=20.0,
+            value=5.0,
+            step=0.1,
+            key='p_error_slider'
+        )
+
+        # Checkbox to filter by mag_type Mw
+        filter_mw_only = st.toggle("Only show earthquakes of scale 'Mw'", value=False)
+
+        # Create a copy of the DataFrame and apply filters
+        df_filtered = df.copy()
+        df_filtered['p_confidence'] = pd.to_numeric(df_filtered['p_confidence'], errors='coerce')
+
+        # Convert 'date' column to datetime format if it is not already
+        df_filtered['date'] = pd.to_datetime(df_filtered['date'], errors='coerce').dt.date
+
+        # Filter based on p_confidence threshold
+        df_filtered = df_filtered.loc[df_filtered['p_confidence'] >= confidence_threshold]
+
+        # Apply Mw filter if checkbox is selected
+        if filter_mw_only:
+            df_filtered = df_filtered[df_filtered['mag_type'].str.lower() == 'mw']
+
+        # Ensure 'detected' and 'catalogued' are boolean
+        df_filtered['detected'] = df_filtered['detected'].astype(bool)
+        df_filtered['catalogued'] = df_filtered['catalogued'].astype(bool)
+
+        # Convert 'p_error' to numeric
+        df_filtered['p_error'] = pd.to_numeric(df_filtered['p_error'], errors='coerce')
+
+        # Apply p_error filter
+        df_filtered = df_filtered.loc[df_filtered['p_error'].abs() <= p_error_threshold]
+        st.divider()
+
+        # 新的 Statistics 容器，显示过滤前后的地震数量
+        st.subheader("Filtering Result Statistics")
+
+        # 使用列布局
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # 过滤前的地震数量，确保 catalogued 和 detected 都为 True
+            total_earthquakes_before_filter = df[
+                (df['catalogued'] == True) & (df['detected'] == True)
+                ].shape[0]
+
+            # 显示过滤前的统计信息
+            st.metric(label="Number Of Earthquakes In Summary", value=total_earthquakes_before_filter)
+
+        with col2:
+            # 过滤后的地震数量
+            total_earthquakes_after_filter = df_filtered[
+                (df_filtered['catalogued'] == True) & (df_filtered['detected'] == True)
+                ].shape[0]
+
+            # 显示过滤后的统计信息
+            st.metric(label="Number Of Earthquakes After Filtering", value=total_earthquakes_after_filter)
+
+        # 添加选择日期过滤的选项（仅当 enable_date_filtering 为 True 时显示）
+        if enable_date_filtering:
+            st.divider()
+            date_filter_option = st.radio(
+                "See Filtered Earthquakes By Date",
+                options=["Show all dates", "Select a specific date"],
+                index=0
+            )
+
+            if date_filter_option == "Select a specific date":
+                # 从过滤后的 df_filtered 中获取唯一日期
+                available_dates = sorted(df_filtered['date'].dropna().unique())
+
+                # 创建一个日期选择器，用户可以选择要过滤的日期
+                selected_date = st.selectbox(
+                    "Select a date to filter",
+                    available_dates,
+                    format_func=lambda x: x.strftime('%Y-%m-%d')
+                )
+
+                # 根据选择的日期再次过滤数据框
+                df_filtered = df_filtered[df_filtered['date'] == selected_date]
+
+    return df_filtered
+
+
+def sidebar_navigation():
+    """
+    Render the sidebar navigation with links to different pages.
+    """
+    st.sidebar.title("Navigation")
+    st.sidebar.page_link('Home.py', label='Home')
+    st.sidebar.page_link('pages/Daily_Report_page.py', label='Daily Report')
+    st.sidebar.page_link('pages/Event_Report_page.py', label='Event Report')
+    st.sidebar.page_link('pages/Statistics_page.py', label='Statistics')
+    st.sidebar.page_link('pages/Settings_page.py', label='Settings')
