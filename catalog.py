@@ -12,7 +12,7 @@ from obspy.clients.fdsn import Client
 from obspy.clients.fdsn.header import FDSNNoDataException, FDSNException
 from obspy.core import UTCDateTime
 from github_file import upload_file_to_github, check_file_exists_in_github, write_file_to_github, g, repo, \
-    download_file_from_github, repo, REPO_NAME
+    download_file_from_github, repo, REPO_NAME, get_file_sha, move_github_file
 from earthquake import Earthquake
 
 
@@ -475,16 +475,23 @@ class CatalogData:
 
         return url
 
+    import os
+    import time
+    import datetime
+    import pandas as pd
+    from github import GithubException
+
     def update_summary_csv(self, deployed=True, max_attempts=3):
         date_str = self.station.report_date.strftime('%Y-%m-%d')
         station_network = self.station.network
         station_code = self.station.code
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         path = self.station.report_folder
         repo_dir = os.path.join("data", f"{station_network}.{station_code}")
 
-        if not os.path.exists(path):
-            os.makedirs(path, exist_ok=True)
+        # 创建临时文件夹
+        temp_dir = os.path.join(os.getcwd(), "temp_files")
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir, exist_ok=True)
 
         headers = ["network", "code", "date", "unique_id", "provider", "event_id", "time", "lat", "long", "mag",
                    "mag_type", "depth", "epi_distance", "p_predicted", "s_predicted", "p_detected", "s_detected",
@@ -502,6 +509,7 @@ class CatalogData:
                     file_path = os.path.join(self.station.report_folder, f"{eq.unique_id}_event_plot.png")
                     eq.plot_path = file_path
 
+        # 创建新的 DataFrame 包含所有的事件
         new_data = pd.DataFrame([{
             "network": station_network,
             "code": station_code,
@@ -530,8 +538,9 @@ class CatalogData:
         } for eq in self.all_day_earthquakes], columns=headers)
 
         if deployed:
-            # 添加时间戳到 total summary 文件名
-            summary_file_path = f"{repo_dir}/processed_earthquakes_summary_{timestamp}.csv"
+            # 文件路径设置
+            summary_file_path = f"{repo_dir}/processed_earthquakes_summary.csv"
+            backup_summary_file_path = f"{repo_dir}/processed_earthquakes_summary_backup.csv"
             repo_dir = repo_dir.replace("\\", "/")
             print(f"Checking GitHub directory: {repo_dir}")
 
@@ -539,25 +548,27 @@ class CatalogData:
             existing_data = pd.DataFrame(columns=headers)
 
             try:
-                # 获取目录内容并查找旧的 summary 文件
+                # 获取目录内容并查找 summary 文件
                 contents = repo.get_contents(repo_dir)
                 for content in contents:
-                    if "processed_earthquakes_summary" in content.name:
-                        print(f"Old file found: {content.name}. Downloading for merging...")
-                        old_summary_path = os.path.join(path,
-                                                        os.path.basename(content.name))  # 使用 os.path.basename 获取文件名
-                        download_file_from_github(content.path, old_summary_path)
-                        temp_data = pd.read_csv(old_summary_path)
+                    if "processed_earthquakes_summary.csv" in content.name:
+                        print(f"Existing summary file found: {content.name}. Downloading for merging...")
+                        temp_file_path = os.path.join(temp_dir, os.path.basename(content.name))
+                        download_file_from_github(content.path, temp_file_path)
+                        temp_data = pd.read_csv(temp_file_path)
                         existing_data = pd.concat([existing_data, temp_data], ignore_index=True)
-                        print(f"Old summary file '{content.name}' merged.")
+                        print(f"Existing summary file '{content.name}' has been downloaded and merged with new data.")
                         # 删除本地临时文件
-                        os.remove(old_summary_path)
+                        os.remove(temp_file_path)
             except GithubException as e:
                 print(f"An error occurred while accessing GitHub path '{repo_dir}': {str(e)}")
                 print(f"Skipping merging. Proceeding to upload new summary.")
 
+            # 检查是否有重复的 unique_id，移除旧记录只保留新记录
+            existing_data = existing_data[~existing_data['unique_id'].isin(new_data['unique_id'])]
+
             # 合并新的数据
-            existing_data = existing_data[existing_data['date'] != new_data['date'].iloc[0]]
+            print("Merging existing data with new data.")
             full_columns = set(new_data.columns).union(set(existing_data.columns))
             new_data = new_data.reindex(columns=full_columns, fill_value=pd.NA)
             existing_data = existing_data.reindex(columns=full_columns, fill_value=pd.NA)
@@ -565,14 +576,16 @@ class CatalogData:
             updated_data = pd.concat([existing_data, new_data], ignore_index=True)
 
             # 上传合并后的 summary 文件
-            updated_summary_path = os.path.join(path, "updated_summary.csv")
-            updated_data.to_csv(updated_summary_path, index=False)
+            temp_summary_path = os.path.join(temp_dir, f"temp_summary_{int(time.time())}.csv")
+            updated_data.to_csv(temp_summary_path, index=False)
+            print(f"Merged data saved to temporary file '{temp_summary_path}'.")
 
-            # 尝试多次上传新文件
+            # 尝试多次上传新文件，覆盖 summary
             for attempt in range(max_attempts):
                 try:
-                    upload_file_to_github(updated_summary_path, summary_file_path)
-                    print(f"New summary file '{summary_file_path}' uploaded to GitHub.")
+                    print(f"Uploading the new summary file to GitHub as '{summary_file_path}'.")
+                    upload_file_to_github(temp_summary_path, summary_file_path)
+                    print(f"Summary file '{summary_file_path}' successfully uploaded to GitHub.")
                     break  # 上传成功后退出循环
                 except GithubException as e:
                     print(f"Attempt {attempt + 1} to upload file failed: {str(e)}")
@@ -580,30 +593,33 @@ class CatalogData:
                         print("Retrying...")
                         time.sleep(2)  # 等待2秒后再尝试
                     else:
-                        print("Max attempts reached. Could not upload the new summary file.")
+                        print("Max attempts reached. Could not upload the summary file.")
                         return
 
-            # 上传成功后删除旧的 summary 文件
+            # 上传成功后，上传备份文件
             try:
-                contents = repo.get_contents(repo_dir)
-                for content in contents:
-                    if "processed_earthquakes_summary" in content.name and content.name != os.path.basename(
-                            summary_file_path):
-                        print(f"Deleting old summary file: {content.name}")
-                        repo.delete_file(content.path, f"Delete old summary file {content.name}", content.sha)
-                        print(f"File '{content.name}' deleted.")
+                print(f"Uploading backup summary file to GitHub as '{backup_summary_file_path}'.")
+                upload_file_to_github(temp_summary_path, backup_summary_file_path)
+                print(f"Backup summary file '{backup_summary_file_path}' successfully uploaded to GitHub.")
             except GithubException as e:
-                print(f"An error occurred while deleting old summary files: {str(e)}")
+                print(f"An error occurred while uploading backup summary file: {str(e)}")
+
+            # 删除临时文件
+            os.remove(temp_summary_path)
+            print(f"Temporary file '{temp_summary_path}' has been deleted.")
 
         else:
             # 本地模式处理 summary 文件
-            total_file_path = os.path.join(self.station.station_folder,
-                                           f"processed_earthquakes_summary_{timestamp}.csv")
+            summary_file_path = os.path.join(self.station.station_folder, "processed_earthquakes_summary.csv")
+            backup_summary_file_path = os.path.join(self.station.station_folder,
+                                                    "processed_earthquakes_summary_backup.csv")
 
-            if os.path.exists(total_file_path):
-                existing_data = pd.read_csv(total_file_path)
-                existing_data = existing_data[existing_data['date'] != new_data['date'].iloc[0]]
+            if os.path.exists(summary_file_path):
+                print(f"Existing summary file found locally: '{summary_file_path}'. Merging with new data.")
+                existing_data = pd.read_csv(summary_file_path)
+                existing_data = existing_data[~existing_data['unique_id'].isin(new_data['unique_id'])]
             else:
+                print("No existing summary file found locally. Proceeding with new data only.")
                 existing_data = pd.DataFrame(columns=headers)
 
             full_columns = set(new_data.columns).union(set(existing_data.columns))
@@ -611,6 +627,11 @@ class CatalogData:
             existing_data = existing_data.reindex(columns=full_columns, fill_value=pd.NA)
 
             updated_data = pd.concat([existing_data, new_data], ignore_index=True)
-            updated_data.to_csv(total_file_path, index=False)
 
-            print(f"Processed summary saved to {total_file_path}")
+            # 保存 summary 文件
+            updated_data.to_csv(summary_file_path, index=False)
+            print(f"Processed summary saved to '{summary_file_path}'")
+
+            # 复制一份作为备份文件
+            updated_data.to_csv(backup_summary_file_path, index=False)
+            print(f"Backup summary saved to '{backup_summary_file_path}'")

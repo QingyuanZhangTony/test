@@ -172,3 +172,56 @@ def delete_file_from_github(repo_file_path, commit_message="Delete file from Git
 
     except Exception as e:
         print(f"An error occurred while deleting the file '{repo_file_path}' from GitHub: {str(e)}")
+
+
+def get_file_sha(file_path):
+    """
+    获取指定路径文件的 SHA 值，用于后续的 GitHub 操作。
+
+    Args:
+    - file_path (str): GitHub 仓库中的文件路径。
+
+    Returns:
+    - str: 文件的 SHA 值。
+    """
+    try:
+        file_path = file_path.replace("\\", "/")  # 确保路径使用的是正斜杠
+        contents = repo.get_contents(file_path)
+        return contents.sha
+    except Exception as e:
+        print(f"Error retrieving file SHA for {file_path}: {str(e)}")
+        return None
+
+
+def move_github_file(old_path, new_path):
+    """
+    在 GitHub 仓库中重命名文件。
+
+    Args:
+    - old_path (str): 旧文件路径。
+    - new_path (str): 新文件路径。
+    """
+    try:
+        old_path = old_path.replace("\\", "/")  # 确保路径使用的是正斜杠
+        new_path = new_path.replace("\\", "/")  # 确保路径使用的是正斜杠
+
+        # 检查 old_path 文件是否存在
+        if check_file_exists_in_github(old_path):
+            # 获取旧文件的 SHA 值
+            file_sha = get_file_sha(old_path)
+            if file_sha:
+                # 通过创建新文件和删除旧文件来实现文件重命名
+                file_content = repo.get_contents(old_path).decoded_content.decode("utf-8")
+                repo.create_file(new_path, "Renaming file", file_content, branch="main")
+                repo.delete_file(old_path, "Deleting old file", file_sha, branch="main")
+                print(f"File {old_path} renamed to {new_path}.")
+            else:
+                print(f"Failed to retrieve SHA for {old_path}, file not moved.")
+        else:
+            # 如果旧文件不存在，直接创建新文件
+            print(f"No old file found at {old_path}, skipping renaming.")
+            file_content = repo.get_contents(new_path).decoded_content.decode("utf-8")
+            repo.create_file(new_path, "Creating new file", file_content, branch="main")
+            print(f"File {new_path} created.")
+    except Exception as e:
+        print(f"Error moving file: {str(e)}")
