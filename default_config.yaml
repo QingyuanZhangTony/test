@@ -2,7 +2,7 @@ remove_outliers: true
 detrend_demean: true
 tolerance_s: 0.0
 taper: true
-initialized: false
+initialized: true
 p_only: true
 station_latitude: '54.76576576576576'
 station_longitude: '-1.561623996769607'
