@@ -339,39 +339,43 @@ with match_events_container:
         proceed_button_match = st.button('Proceed with Matching' if not st.session_state.is_matching else 'Matching...',
                                          key='proceed_match', disabled=st.session_state.is_matching)
 
-    # Handle matching logic
+    # Check if the match button was pressed and necessary data is available
     if proceed_button_match and st.session_state.global_catalog and st.session_state.phases_detected:
+        # Step 1: Start the matching process
         st.session_state.is_matching = True
         st.rerun()
 
     if st.session_state.is_matching:
+        # Step 2: Define progress update function
         def update_progress(progress_value, status_message):
             st.session_state.match_events_progress = progress_value
             st.session_state.match_events_status = status_message
             progress_bar.progress(progress_value / 100.0)
             status_text.text(status_message)
 
-
-        # Reset the matching state
+        # Step 3: Reset matching state before starting
         st.session_state.matching_completed = False
         st.session_state.detected_catalogued = 0
 
-        # 调用逻辑函数并更新进度
-        detected_catalogued, detected_not_catalogued_count = match_events_logic(
+        # Step 4: Perform the event matching logic
+        detected_catalogued, detected_not_catalogued_count, updated_df = match_events_logic(
             st.session_state.global_catalog,
             st.session_state.global_station,
             st.session_state.tolerance_p,
-            st.session_state.tolerance_s if 'tolerance_s' in locals() else 0.0,
+            st.session_state.tolerance_s if 'tolerance_s' in st.session_state else 0.0,
             st.session_state.p_only,
             update_progress=update_progress  # 传递进度更新函数
         )
 
+        # Step 5: Update status and data after matching
         st.session_state.matching_completed = True
         st.session_state.detected_catalogued = detected_catalogued
+        st.session_state.df = updated_df
 
+        # Step 6: Matching complete
         st.session_state.is_matching = False
         st.rerun()
-st.divider()
+
 
 # Generate Report Container
 generate_report_container = st.container()
@@ -379,6 +383,7 @@ with generate_report_container:
     report_help_text = "This step generates a detailed report for successfully matched earthquakes."
     st.header("Step 6: Generate Report", help=report_help_text)
 
+    # Step 1: Initialize the report generation state
     if 'is_generating_report' not in st.session_state:
         st.session_state.is_generating_report = False
 
@@ -388,45 +393,54 @@ with generate_report_container:
     if 'report_generation_progress' not in st.session_state:
         st.session_state.report_generation_progress = 0
 
+    # Step 2: Prepare UI elements for progress and status display
     status_text = st.empty()
     progress_bar = st.progress(st.session_state.report_generation_progress)
 
     report_date_str = st.session_state.report_date.strftime('%Y-%m-%d')
-    load_summary_to_session()
+
+    # Step 3: Filter data for the selected report date
     report_date_df = st.session_state.df[st.session_state.df['date'] == report_date_str]
 
+    if report_date_df.empty:
+        st.warning("No data available for the selected date. Please select a different date.")
+        st.stop()
 
-    # 确保已经完成了事件匹配并且有检测到的事件
+    # Step 4: Ensure matching is completed and detected events exist
     if st.session_state.get('matching_completed', False) and 'detected_catalogued' in st.session_state:
-        # 如果匹配的事件少于1个，显示警告消息
         if st.session_state.detected_catalogued < 1:
             st.warning("No event matched. Please confirm before generating the report.")
     else:
         st.warning("Event matching not completed. Please complete the event matching step before generating the report.")
         st.stop()
 
+    # Step 5: Handle the report generation button press
     proceed_button_report = st.button(
         'Generate Report' if not st.session_state.is_generating_report else 'Generating...',
         key='proceed_report', disabled=st.session_state.is_generating_report)
 
     if proceed_button_report:
+        # Step 6: Start report generation
         st.session_state.is_generating_report = True
         st.session_state.report_generation_progress = 10
         st.session_state.report_generation_status = "Starting report generation..."
         st.rerun()
 
     if st.session_state.is_generating_report:
+        # Step 7: Define progress update function
         def update_progress(progress_value, status_message):
             st.session_state.report_generation_progress = progress_value
             st.session_state.report_generation_status = status_message
             status_text.text(status_message)
             progress_bar.progress(progress_value / 100.0)
 
+        # Step 8: Verify all required data is available before generating the report
         if not st.session_state.global_station or not st.session_state.global_catalog or not st.session_state.matching_completed:
             st.session_state.report_generation_status = "Required data not available. Please complete all steps."
             st.session_state.is_generating_report = False
         else:
-            # Generate report with save_to_file=False
+            # Step 9: Load summary and generate the report
+            load_summary_to_session()
             st.session_state.global_report_buffer = generate_report_logic(
                 st.session_state.df,
                 st.session_state.report_date,
@@ -439,15 +453,18 @@ with generate_report_container:
                 save_to_file=True  # Return buffer instead of saving to file
             )
 
+            # Step 10: Finalize the report generation process
             st.session_state.report_generated = True
             st.session_state.is_generating_report = False
             st.session_state.report_generation_progress = 100
             st.session_state.report_generation_status = "Report generation complete."
             st.rerun()
 
+    # Step 11: Display report generation status
     if st.session_state.report_generated:
         status_text.text(st.session_state.report_generation_status)
 
+    # Step 12: Optionally display an interactive map
     if st.session_state.detected_catalogued > 0:
         with st.expander("Click Here To See Detected Earthquakes On An Interactive Map", expanded=False):
             render_interactive_map(report_date_df,
@@ -458,6 +475,7 @@ with generate_report_container:
                                    },
                                    title="Detected Earthquakes on Report Date")
 st.divider()
+
 
 # Send Email Container
 send_email_container = st.container()
