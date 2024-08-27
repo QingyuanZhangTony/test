@@ -97,12 +97,12 @@ def read_summary_csv(network, code, deployed=True):
 
     station_folder = os.path.join("data", f"{network}.{code}").replace("\\", "/")
 
-    github_username = st.secrets["GITHUB_TOKEN"]
-    repo_name = st.secrets["REPO_NAME"]
-
     if deployed:
+        repo_name = st.secrets["REPO_NAME"]
+
         # 构建raw链接
-        summary_file_url = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{station_folder}/processed_earthquakes_summary.csv"
+        summary_file_url = f"https://raw.githubusercontent.com/{repo_name}/main/{station_folder}/processed_earthquakes_summary.csv"
+        print("Reading the latest version of the file.")
 
         try:
             # 发送GET请求获取CSV内容
@@ -111,10 +111,12 @@ def read_summary_csv(network, code, deployed=True):
 
             # 检查文件内容是否为空
             if response.text.strip() == "":
+                print("File is empty.")
                 return None, "file_empty"
 
             # 使用io.StringIO读取CSV数据
             df = pd.read_csv(io.StringIO(response.text))
+            print("Latest version of the file loaded successfully.")
             return df, "loaded"
         except requests.exceptions.HTTPError as http_err:
             print(f"HTTP error occurred while accessing {summary_file_url}: {str(http_err)}")
@@ -130,8 +132,8 @@ def read_summary_csv(network, code, deployed=True):
 
         file_path = os.path.join(station_folder_path, "processed_earthquakes_summary.csv")
         try:
-
             df = pd.read_csv(file_path)
+            print("File loaded from local filesystem.")
             return df, "loaded"
         except FileNotFoundError:
             print(f"File not found: {file_path}")
@@ -139,8 +141,6 @@ def read_summary_csv(network, code, deployed=True):
         except Exception as e:
             print(f"An error occurred: {str(e)}")
             return None, "error_reading"
-
-    return None, "not_found"
 
 
 def load_summary_to_session():
@@ -152,7 +152,7 @@ def load_summary_to_session():
 
     # 如果 DataFrame 是 None，表示文件未找到或加载失败
     if status == "not_found":
-        st.warning("Total events summary file not found. Creating an empty summary file...")
+        print("Total events summary file not found. Creating an empty summary file...")
 
         # 尝试创建一个空的 summary 文件，只有在文件完全不存在时才创建
         if not check_file_exists_in_github(
@@ -164,7 +164,7 @@ def load_summary_to_session():
             )
 
             if success:
-                st.success("Empty summary file created successfully.")
+                print("Empty summary file created successfully.")
                 # 创建一个空的 DataFrame，并设置 st.session_state.df
                 st.session_state.df = pd.DataFrame(columns=[
                     "network", "code", "date", "unique_id", "provider", "event_id", "time", "lat", "long", "mag",
@@ -173,24 +173,23 @@ def load_summary_to_session():
                 ])
                 return "exist_empty"
             else:
-                st.error("Failed to create an empty summary file.")
+                print("Failed to create an empty summary file.")
                 return "not_exist"
         else:
-            st.error("Summary file exists but could not be loaded.")
+            print("Summary file exists but could not be loaded.")
             return "not_exist"
 
     elif status == "error_reading":
-        st.error("Error occurred while reading the summary file. Please check the file manually.")
+        print("Error occurred while reading the summary file. Please check the file manually.")
         return "error"
 
     if df.empty:
-        st.warning("Total events summary file is empty.")
+        print("Total events summary file is empty.")
         st.session_state.df = df
         return "exist_empty"
     else:
         st.session_state.df = df
         return "exist_loaded"
-
 
 # Function to load settings from a YAML file
 

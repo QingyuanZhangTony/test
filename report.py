@@ -147,6 +147,7 @@ class DailyReport(Report):
         """
         self.df = df
         self.date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
+        self.df_filtered = self.df[self.df['date'] == self.date_str]
         self.station_lat = float(station_lat)
         self.station_lon = float(station_lon)
         self.fill_map = fill_map
@@ -176,7 +177,7 @@ class DailyReport(Report):
         Returns:
         - str: The path to the saved plot image or the GitHub URL if deployed.
         """
-        earthquakes = self.df[(self.df['catalogued'] == True) & (self.df['date'] == self.date_str)]
+        earthquakes = self.df_filtered[self.df_filtered['catalogued'] == True]
         title = f"Catalogue Events on {self.date_str}"
         file_name = f'catalogued_plot_{self.date_str}.png'
         output_path = os.path.join(self.report_folder, file_name)
@@ -270,7 +271,8 @@ class DailyReport(Report):
         - str: The HTML string for the daily report header.
         """
         # Find the row corresponding to the given date
-        date_row = self.df[self.df['date'] == self.date_str].iloc[0]
+        date_row = self.df_filtered.iloc[0]
+
 
         network = date_row['network']
         code = date_row['code']
@@ -304,8 +306,8 @@ class DailyReport(Report):
 
         # 构建 image_path，根据部署模式选择本地路径或 GitHub URL
         if deployed:
-            network = self.df.iloc[0]['network']
-            code = self.df.iloc[0]['code']
+            network = self.df_filtered.iloc[0]['network']
+            code = self.df_filtered.iloc[0]['code']
             file_name = f'catalogued_plot_{self.date_str}.png'
             repo_file_path = os.path.join('data', f'{network}.{code}', self.date_str, 'report', file_name)
             repo_file_path = repo_file_path.replace("\\", "/")
@@ -315,10 +317,10 @@ class DailyReport(Report):
 
         # 根据 simplified 标志过滤 DataFrame
         if simplified:
-            filtered_df = self.df[
-                (self.df['date'] == self.date_str) & (self.df['detected'] == True) & (self.df['catalogued'] == True)]
+            filtered_df = self.df_filtered[
+                (self.df_filtered['detected'] == True) & (self.df_filtered['catalogued'] == True)]
         else:
-            filtered_df = self.df[(self.df['date'] == self.date_str) & (self.df['catalogued'] == True)]
+            filtered_df = self.df_filtered[self.df_filtered['catalogued'] == True]
 
         # 构建 catalog 部分的 HTML
         catalog_html = f"""
@@ -370,8 +372,10 @@ class DailyReport(Report):
         Returns:
         - str: The HTML string for the event details section of the report.
         """
-        filtered_df = self.df[
-            (self.df['date'] == self.date_str) & (self.df['catalogued'] == True) & (self.df['detected'] == True)]
+        # 过滤已检测并且已在目录中的事件
+        filtered_df = self.df_filtered[
+            (self.df_filtered['catalogued'] == True) & (self.df_filtered['detected'] == True)
+            ]
 
         all_event_details_html = ""
 
@@ -503,7 +507,8 @@ class DailyReport(Report):
 
         if deployed:
             # If deployed, upload the PDF to GitHub
-            repo_dir = os.path.join("data", f"{self.df.iloc[0]['network']}.{self.df.iloc[0]['code']}", self.date_str,
+            repo_dir = os.path.join("data", f"{self.df_filtered.iloc[0]['network']}.{self.df_filtered.iloc[0]['code']}",
+                                    self.date_str,
                                     'report')
             repo_file_path = os.path.join(repo_dir, file_name).replace("\\", "/")
 

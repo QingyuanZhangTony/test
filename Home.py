@@ -1,7 +1,13 @@
 import time
+
+import pandas as pd
 import streamlit as st
+
+from logic import initialisation_logic
 from station import Station
-from streamlit_utils import load_config_to_df, save_config_to_yaml, load_config_to_session, sidebar_navigation
+from streamlit_utils import load_config_to_df, save_config_to_yaml, load_config_to_session, sidebar_navigation, \
+    create_empty_summary_file, load_summary_to_session
+import datetime
 
 # Sidebar navigation
 sidebar_navigation()
@@ -14,7 +20,8 @@ if not st.session_state.get('initialized', False):
     st.title("Welcome to Earthquake Monitoring And Report")
     st.header("First-Time Setup Required")
 
-    st.write("It looks like this is your first time running the application. Please provide the following information to get started.")
+    st.write(
+        "It looks like this is your first time running the application. Please provide the following information to get started.")
 
     # User input for configuration parameters
     network = st.text_input("Network Name", st.session_state.get('network', ''))
@@ -38,37 +45,7 @@ if not st.session_state.get('initialized', False):
 
     # Save settings button
     if st.button("Save Settings and Start"):
-        # Fetch coordinates based on user inputs
-        latitude, longitude = Station.fetch_coordinates(network, station_code, data_provider_url)
-
-        # If coordinates were successfully fetched, proceed
-        if latitude is not None and longitude is not None:
-            # Update session state with new settings
-            st.session_state['network'] = network
-            st.session_state['station_code'] = station_code
-            st.session_state['data_provider_url'] = data_provider_url
-            st.session_state['station_latitude'] = str(latitude)  # Convert to string
-            st.session_state['station_longitude'] = str(longitude)  # Convert to string
-            st.session_state['email_recipient'] = email_recipient
-            st.session_state['initialized'] = True
-
-            # Load and update config file to reflect changes
-            config_file = load_config_to_df()
-            config_file['network'] = network
-            config_file['station_code'] = station_code
-            config_file['data_provider_url'] = data_provider_url
-            config_file['station_latitude'] = str(latitude)  # Convert to string
-            config_file['station_longitude'] = str(longitude)  # Convert to string
-            config_file['email_recipient'] = email_recipient
-            config_file['initialized'] = True
-
-            # Save the updated config to file
-            save_config_to_yaml(config_file)
-
-            # Display success message and prepare for reload
-            st.success("Settings saved! Now the application will reload for you to continue.")
-            time.sleep(3)  # Wait for 3 seconds before reloading
-            st.rerun()  # Reload the application
+        initialisation_logic(network, station_code, data_provider_url, email_recipient)
 
 else:
     # If already initialized, show main content
@@ -76,9 +53,68 @@ else:
     st.header(f"Welcome back, {st.session_state['station_code']}")
 
     st.write("You're all set up and ready to start monitoring earthquakes.")
+    st.divider()
 
     # Display main application content with formatted coordinates to 2 decimal places
-    st.write(f"**Network:** {st.session_state['network']}  **Station:** {st.session_state['station_code']}  **Data Provider URL:** {st.session_state['data_provider_url']}")
-    st.write(f"**Data Provider URL:** {st.session_state['data_provider_url']}")
-    st.write(f"**Location:** Lat {float(st.session_state['station_latitude']):.2f}, Lon {float(st.session_state['station_longitude']):.2f}")
+    st.write(f"**Network:** {st.session_state['network']}  **Station:** {st.session_state['station_code']}")
+    st.write(
+        f"**Location:** {float(st.session_state['station_latitude']):.2f}, {float(st.session_state['station_longitude']):.2f}")
     st.write(f"**Report Recipient Email:** {st.session_state['email_recipient']}")
+
+    summary_status = load_summary_to_session()
+
+    # 检查 summary 状态
+    if summary_status == "exist_loaded":
+        # 获取今天日期
+        today = datetime.date.today()
+
+        # 将 'date' 列转换为 datetime 对象
+        st.session_state.df['date'] = pd.to_datetime(st.session_state.df['date']).dt.date
+
+        # 计算总匹配成功的事件数
+        total_matched_events = \
+            st.session_state.df[st.session_state.df['catalogued'] & st.session_state.df['detected']].shape[0]
+
+        # 计算昨天的匹配成功事件数
+        yesterday = today - datetime.timedelta(days=1)
+        yesterday_matched_events = st.session_state.df[
+            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                    st.session_state.df['date'] == yesterday)
+            ].shape[0]
+
+        # 计算前天的匹配成功事件数（用于计算delta）
+        day_before_yesterday = today - datetime.timedelta(days=2)
+        day_before_yesterday_matched_events = st.session_state.df[
+            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                    st.session_state.df['date'] == day_before_yesterday)
+            ].shape[0]
+
+        # 计算过去30天的匹配成功事件数
+        last_30_days = today - datetime.timedelta(days=30)
+        last_30_days_matched_events = st.session_state.df[
+            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                    st.session_state.df['date'] >= last_30_days)
+            ].shape[0]
+
+        # 计算前30天的匹配成功事件数（用于计算delta）
+        previous_30_days = today - datetime.timedelta(days=60)
+        previous_30_days_matched_events = st.session_state.df[
+            (st.session_state.df['catalogued'] & st.session_state.df['detected']) &
+            (st.session_state.df['date'] >= previous_30_days) &
+            (st.session_state.df['date'] < last_30_days)
+            ].shape[0]
+
+        # 计算delta
+        yesterday_delta = yesterday_matched_events - day_before_yesterday_matched_events
+        last_30_days_delta = last_30_days_matched_events - previous_30_days_matched_events
+
+        # 展示在页面中
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Matched Events", total_matched_events)
+        col2.metric("Matched Events Yesterday", yesterday_matched_events, delta=yesterday_delta)
+        col3.metric("Matched Events Last 30 Days", last_30_days_matched_events, delta=last_30_days_delta)
+
+    elif summary_status == "exist_empty":
+        st.warning("Total events summary file is empty. No metrics to display.")
+    else:
+        st.error("Summary file could not be loaded. Metrics are unavailable.")

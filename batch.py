@@ -17,7 +17,7 @@ if __name__ == '__main__':
     default_config = load_config_to_df()
 
     # Calculate the date range from July 1st of the current year to yesterday
-    start_date = datetime.date(2024, 5, 1)
+    start_date = datetime.date(2024, 6, 22)
     end_date = datetime.date.today() - datetime.timedelta(days=1)
 
     current_date = start_date
@@ -97,8 +97,9 @@ if __name__ == '__main__':
                 p_only = default_config['p_only']
 
                 # Match events
-                detected_catalogued, detected_not_catalogued_count = match_events_logic(
+                detected_catalogued, detected_not_catalogued_count,updated_df= match_events_logic(
                     catalog, station, tolerance_p, tolerance_s, p_only)
+
                 print(
                     f"Detected Catalogued Events: {detected_catalogued}, Detected Not Catalogued Count: {detected_not_catalogued_count}")
 
@@ -106,14 +107,8 @@ if __name__ == '__main__':
                 simplified = default_config['simplified']
                 fill_map = default_config['fill_map']
 
-                # Read summary CSV and generate the report PDF
-                df, status = read_summary_csv(network, station_code)
-                print(df.head())
-
-                filtered_df = df[df['date'] == report_date_str]
-
                 pdf_buffer = generate_report_logic(
-                    filtered_df, report_date_str,
+                    updated_df, report_date_str,
                     latitude, longitude, fill_map, simplified, p_only, save_to_file=True)
 
 

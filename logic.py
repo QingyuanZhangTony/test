@@ -13,7 +13,8 @@ from obspy.clients.fdsn.header import FDSNNoDataException, FDSNException
 from catalog import CatalogData
 from report import Report, DailyReport, EventReport
 from station import Station
-from streamlit_utils import load_plate_boundaries, create_ticks, update_status, load_config_to_df, read_summary_csv
+from streamlit_utils import load_plate_boundaries, create_ticks, update_status, load_config_to_df, read_summary_csv, \
+    save_config_to_yaml, create_empty_summary_file
 
 
 def download_catalogue_logic(network, station_code, data_provider_url, report_date, latitude, longitude,
@@ -230,7 +231,7 @@ def match_events_logic(catalog, station, tolerance_p, tolerance_s, p_only, updat
     for eq in catalog.all_day_earthquakes:
         eq.update_errors()
 
-    catalog.update_summary_csv()
+    updated_df= catalog.update_summary_csv()
 
     # 计算 catalog 中的地震事件数量
     event_count = len(catalog.original_catalog_earthquakes)  # 使用原始 catalog 中的事件数
@@ -244,14 +245,19 @@ def match_events_logic(catalog, station, tolerance_p, tolerance_s, p_only, updat
 
     print("-" * 50)
 
-    return detected_catalogued, detected_not_catalogued_count
+    return detected_catalogued, detected_not_catalogued_count,updated_df
 
 
 def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simplified, p_only, update_status_func=None,
                           save_to_file=True):
+    # 检查 DataFrame 是否为空
+    if df.empty:
+        update_status(0, "Error: No data available for report generation.", update_status_func)
+        print("Error: DataFrame is empty. Report generation aborted.")
+        return None
 
     date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
-    print("date_str",date_str)
+    print("date_str", date_str)
 
     # Instantiate the DailyReport class
     update_status(10, "Generating catalogue plot...", update_status_func)
@@ -263,10 +269,8 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     update_status(30, "Generating event plots...", update_status_func)
 
     # Generate and save event plots for all detected and catalogued earthquakes
-
     for _, row in df[(df['catalogued'] == True) & (df['detected'] == True) & (df['date'] == date_str)].iterrows():
         event_report = EventReport(row)
-
         # If simplified, do not plot confidence
         plot_path = event_report.plot_event(confidence=not simplified, p_only=daily_report.p_only)
         df.loc[df['unique_id'] == row['unique_id'], 'plot_path'] = plot_path
@@ -274,7 +278,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     update_status(60, "Creating report HTML...", update_status_func)
     # Assemble the HTML content for the daily report
     report_html = daily_report.assemble_daily_report_html()
-    report_html = Report.convert_images_to_base64(report_html)
+    ##report_html = Report.convert_images_to_base64(report_html)
 
     update_status(80, "Creating PDF from HTML...", update_status_func)
     # Generate the PDF buffer from the HTML content
@@ -290,7 +294,6 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
         update_status(100, "Report generation complete. PDF buffer created.", update_status_func)
         print("-" * 50)
         return pdf_buffer
-
 
 def generate_event_report_logic(selected_eq, network, station_code, simplified=False, p_only=False):
     """
@@ -806,3 +809,83 @@ def daily_report_automation_logic():
             st.write(f"Failed to download station data for {report_date_str}: {result['message']}")
 
     st.button("Rerun")
+
+
+def initialisation_logic(network, station_code, data_provider_url, email_recipient, max_attempts=3):
+    """
+    Handles the initialization logic including fetching coordinates, creating summary file,
+    saving configuration, and reloading the application with progress updates.
+
+    Args:
+    - network (str): The network name.
+    - station_code (str): The station code.
+    - data_provider_url (str): The data provider URL.
+    - email_recipient (str): The email address for receiving reports.
+    - max_attempts (int): Maximum number of attempts to fetch coordinates.
+
+    Returns:
+    - None
+    """
+    progress = st.progress(0)
+    status_text = st.empty()
+
+    status_text.text("Starting initialization...")
+    progress.progress(10)
+
+    # Attempt to fetch coordinates with retries
+    latitude, longitude = None, None
+    for attempt in range(1, max_attempts + 1):
+        status_text.text(f"Fetch Station Coordinates (Attempt {attempt}/{max_attempts})")
+        latitude, longitude = Station.fetch_coordinates(network, station_code, data_provider_url)
+
+        if latitude is not None and longitude is not None:
+            status_text.text("Coordinates fetched successfully.")
+            progress.progress(30)
+            break
+        else:
+            status_text.text(f"Failed to Fetch Station Coordinates, Trying again (Attempt {attempt}/{max_attempts})")
+            time.sleep(2)
+
+    if latitude is None or longitude is None:
+        status_text.text("Failed to fetch coordinates after multiple attempts. Initialization failed.")
+        progress.progress(100)
+        return
+
+    # Update session state with new settings
+    st.session_state['network'] = network
+    st.session_state['station_code'] = station_code
+    st.session_state['data_provider_url'] = data_provider_url
+    st.session_state['station_latitude'] = str(latitude)
+    st.session_state['station_longitude'] = str(longitude)
+    st.session_state['email_recipient'] = email_recipient
+    st.session_state['initialized'] = True
+
+    status_text.text("Session state updated.")
+    progress.progress(50)
+
+    # Load and update config file to reflect changes
+    config_file = load_config_to_df()
+    config_file['network'] = network
+    config_file['station_code'] = station_code
+    config_file['data_provider_url'] = data_provider_url
+    config_file['station_latitude'] = str(latitude)
+    config_file['station_longitude'] = str(longitude)
+    config_file['email_recipient'] = email_recipient
+    config_file['initialized'] = True
+
+    # Save the updated config to file
+    save_config_to_yaml(config_file)
+
+    status_text.text("Configuration saved.")
+    progress.progress(70)
+
+    # Create an empty summary file
+    create_empty_summary_file(network, station_code, deployed=True)
+    status_text.text("Empty summary file created.")
+    progress.progress(90)
+
+    # Display success message and prepare for reload
+    status_text.text("Settings saved! Now the application will reload for you to continue.")
+    progress.progress(100)
+    time.sleep(2)
+    st.rerun()  # Reload the application

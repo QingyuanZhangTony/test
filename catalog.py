@@ -531,6 +531,8 @@ class CatalogData:
             "plot_path": eq.plot_path
         } for eq in self.all_day_earthquakes], columns=headers)
 
+        sha_value = None  # 用于存储上传后的SHA值
+
         if deployed:
             # 使用 read_summary_csv 读取现有的 summary 数据
             existing_data, status = read_summary_csv(station_network, station_code, deployed=True)
@@ -565,6 +567,10 @@ class CatalogData:
                     print(f"Uploading the new summary file to GitHub as '{summary_file_path}'.")
                     upload_file_to_github(temp_summary_path, summary_file_path)
                     print(f"Summary file '{summary_file_path}' successfully uploaded to GitHub.")
+
+                    # 获取最新文件的SHA值
+                    sha_value = get_file_sha(summary_file_path)
+                    print(f"SHA of the uploaded summary file: {sha_value}")
                     break
                 except GithubException as e:
                     print(f"Attempt {attempt + 1} to upload file failed: {str(e)}")
@@ -573,7 +579,7 @@ class CatalogData:
                         time.sleep(2)
                     else:
                         print("Max attempts reached. Could not upload the summary file.")
-                        return
+                        return None, None
 
             # 上传备份文件
             try:
@@ -613,3 +619,5 @@ class CatalogData:
             # 复制一份作为备份文件
             updated_data.to_csv(backup_summary_file_path, index=False)
             print(f"Backup summary saved to '{backup_summary_file_path}'")
+
+        return updated_data
