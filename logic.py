@@ -249,6 +249,10 @@ def match_events_logic(catalog, station, tolerance_p, tolerance_s, p_only, updat
 
 def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simplified, p_only, update_status_func=None,
                           save_to_file=True):
+
+    date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
+    print("date_str",date_str)
+
     # Instantiate the DailyReport class
     update_status(10, "Generating catalogue plot...", update_status_func)
     daily_report = DailyReport(df, date_str, station_lat, station_lon, fill_map, simplified, p_only)
@@ -259,7 +263,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     update_status(30, "Generating event plots...", update_status_func)
 
     # Generate and save event plots for all detected and catalogued earthquakes
-    date_str = date_str.strftime('%Y-%m-%d') if isinstance(date_str, datetime.date) else str(date_str)
+
     for _, row in df[(df['catalogued'] == True) & (df['detected'] == True) & (df['date'] == date_str)].iterrows():
         event_report = EventReport(row)
 
