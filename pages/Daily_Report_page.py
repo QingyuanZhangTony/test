@@ -368,6 +368,8 @@ with match_events_container:
         # Step 5: Update status and data after matching
         st.session_state.matching_completed = True
         st.session_state.detected_catalogued = detected_catalogued
+        if 'df' not in st.session_state:
+            st.session_state.df = pd.DataFrame()  # 初始化为一个空的 DataFrame
         st.session_state.df = updated_df
 
         # Step 6: Matching complete
