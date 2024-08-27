@@ -4,8 +4,8 @@ tolerance_s: 0.0
 taper: true
 initialized: true
 p_only: true
-station_latitude: '54.7927927927928'
-station_longitude: '-1.562790507998204'
+station_latitude: '54.72972972972973'
+station_longitude: '-1.8098205031446526'
 radmax: '90.0'
 minmag: '0.0'
 maxmag: '10.0'
@@ -23,5 +23,5 @@ data_provider_url: https://data.raspberryshake.org
 s_threshold: 0.7
 fill_map: true
 email_recipient: 891578348@qq.com
-station_code: R1F0E
+station_code: RE83E
 enable_automation: true
