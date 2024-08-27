@@ -14,7 +14,7 @@ network: AM
 tolerance_p: 22.0
 simplified: false
 p_threshold: 0.1
-overwrite: true
+overwrite: false
 radmin: '0.0'
 denoise: true
 catalog_providers: IRIS, USGS, EMSC, GFZ, CENC
