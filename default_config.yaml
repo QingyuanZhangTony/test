@@ -2,10 +2,10 @@ remove_outliers: true
 detrend_demean: true
 tolerance_s: 0.0
 taper: true
-initialized: true
+initialized: false
 p_only: true
-station_latitude: '54.72972972972973'
-station_longitude: '-1.8098205031446526'
+station_latitude: '54.76576576576576'
+station_longitude: '-1.561623996769607'
 radmax: '90.0'
 minmag: '0.0'
 maxmag: '10.0'
@@ -14,7 +14,7 @@ network: AM
 tolerance_p: 22.0
 simplified: false
 p_threshold: 0.1
-overwrite: false
+overwrite: true
 radmin: '0.0'
 denoise: true
 catalog_providers: IRIS, USGS, EMSC, GFZ, CENC
@@ -23,5 +23,5 @@ data_provider_url: https://data.raspberryshake.org
 s_threshold: 0.7
 fill_map: true
 email_recipient: 891578348@qq.com
-station_code: RE83E
+station_code: R50D6
 enable_automation: true

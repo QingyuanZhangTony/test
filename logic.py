@@ -14,7 +14,7 @@ from catalog import CatalogData
 from report import Report, DailyReport, EventReport
 from station import Station
 from streamlit_utils import load_plate_boundaries, create_ticks, update_status, load_config_to_df, read_summary_csv, \
-    save_config_to_yaml, create_empty_summary_file
+    save_config_to_yaml, initialize_summary_file
 
 
 def download_catalogue_logic(network, station_code, data_provider_url, report_date, latitude, longitude,
@@ -880,7 +880,7 @@ def initialisation_logic(network, station_code, data_provider_url, email_recipie
     progress.progress(70)
 
     # Create an empty summary file
-    create_empty_summary_file(network, station_code, deployed=True)
+    initialize_summary_file(network, station_code, deployed=True)
     status_text.text("Empty summary file created.")
     progress.progress(90)
 
