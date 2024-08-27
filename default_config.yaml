@@ -23,5 +23,5 @@ data_provider_url: https://data.raspberryshake.org
 s_threshold: 0.7
 fill_map: true
 email_recipient: 891578348@qq.com
-station_code: R50D6
+station_code: R50D3
 enable_automation: true
