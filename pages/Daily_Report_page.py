@@ -401,6 +401,10 @@ with generate_report_container:
 
     # Step 3: Filter data for the selected report date
     report_date_df = st.session_state.df[st.session_state.df['date'] == report_date_str]
+    print(len( st.session_state.df))
+    print(len(report_date_df))
+
+
 
     if report_date_df.empty:
         st.warning("No data available for the selected date. Please select a different date.")
@@ -440,7 +444,6 @@ with generate_report_container:
             st.session_state.is_generating_report = False
         else:
             # Step 9: Load summary and generate the report
-            load_summary_to_session()
             st.session_state.global_report_buffer = generate_report_logic(
                 st.session_state.df,
                 st.session_state.report_date,

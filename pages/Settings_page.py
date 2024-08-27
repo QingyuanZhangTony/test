@@ -1,5 +1,6 @@
 import streamlit as st
 from streamlit_utils import load_config_to_df, save_config_to_yaml, sidebar_navigation
+from logic import initialisation_logic
 import hmac
 
 # Load default settings
@@ -9,6 +10,14 @@ default_config = load_config_to_df()
 for key, value in default_config.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
+# Save the initial values of station-related settings for comparison later
+initial_values = {
+    'network': st.session_state['network'],
+    'station_code': st.session_state['station_code'],
+    'data_provider_url': st.session_state['data_provider_url'],
+    'email_recipient': st.session_state['email_recipient']
+}
 
 # Sidebar navigation
 sidebar_navigation()
@@ -178,6 +187,22 @@ with save_settings_container:
         st.session_state.overwrite = overwrite
         st.session_state.simplified = simplified
         st.session_state.fill_map = fill_map
+
+        # 检查站台相关值是否发生变化
+        if (
+            initial_values['network'] != st.session_state.network or
+            initial_values['station_code'] != st.session_state.station_code or
+            initial_values['data_provider_url'] != st.session_state.data_provider_url or
+            initial_values['email_recipient'] != st.session_state.email_recipient
+        ):
+            # 调用初始化逻辑函数
+            initialisation_logic(
+                st.session_state.network,
+                st.session_state.station_code,
+                st.session_state.data_provider_url,
+                st.session_state.email_recipient,
+                max_attempts=3
+            )
 
         # Save the updated config to the file
         save_config_to_yaml(st.session_state)
