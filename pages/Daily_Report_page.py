@@ -22,8 +22,6 @@ load_config_to_session()
 # Initialize state variables
 initialize_state_defaults()
 
-# 读取汇总数据到 session
-load_summary_to_session()
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Sidebar navigation
@@ -401,8 +399,7 @@ with generate_report_container:
 
     # Step 3: Filter data for the selected report date
     report_date_df = st.session_state.df[st.session_state.df['date'] == report_date_str]
-    print(len( st.session_state.df))
-    print(len(report_date_df))
+
 
 
 
