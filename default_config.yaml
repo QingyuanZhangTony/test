@@ -22,6 +22,6 @@ detrend_linear: true
 data_provider_url: https://data.raspberryshake.org
 s_threshold: 0.7
 fill_map: true
-email_recipient: 891578348@qq.com
+email_recipient: xmpg69@durham.ac.uk
 station_code: RBE3F
 enable_automation: true
