@@ -82,7 +82,7 @@ def download_station_data_logic(station, update_status_func=None, retries=2, ove
         return {"status": "exists", "message": f"Data for {station.report_date.strftime('%Y-%m-%d')} already exists."}
 
     # 初始化时间间隔
-    start_time = station.report_date - 300
+    start_time = station.report_date
     end_time = station.report_date + 86700
     duration = int((end_time - start_time) / 3)
     parts = []  # 用于存储每个部分的数据流
@@ -231,7 +231,7 @@ def match_events_logic(catalog, station, tolerance_p, tolerance_s, p_only, updat
     for eq in catalog.all_day_earthquakes:
         eq.update_errors()
 
-    updated_df= catalog.update_summary_csv()
+    updated_df = catalog.update_summary_csv()
 
     # 计算 catalog 中的地震事件数量
     event_count = len(catalog.original_catalog_earthquakes)  # 使用原始 catalog 中的事件数
@@ -245,7 +245,7 @@ def match_events_logic(catalog, station, tolerance_p, tolerance_s, p_only, updat
 
     print("-" * 50)
 
-    return detected_catalogued, detected_not_catalogued_count,updated_df
+    return detected_catalogued, detected_not_catalogued_count, updated_df
 
 
 def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simplified, p_only, update_status_func=None,
@@ -278,7 +278,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
     update_status(60, "Creating report HTML...", update_status_func)
     # Assemble the HTML content for the daily report
     report_html = daily_report.assemble_daily_report_html()
-    ##report_html = Report.convert_images_to_base64(report_html)
+    report_html = Report.convert_images_to_base64(report_html)
 
     update_status(80, "Creating PDF from HTML...", update_status_func)
     # Generate the PDF buffer from the HTML content
@@ -294,6 +294,7 @@ def generate_report_logic(df, date_str, station_lat, station_lon, fill_map, simp
         update_status(100, "Report generation complete. PDF buffer created.", update_status_func)
         print("-" * 50)
         return pdf_buffer
+
 
 def generate_event_report_logic(selected_eq, network, station_code, simplified=False, p_only=False):
     """
@@ -534,7 +535,7 @@ def render_interactive_map(df, station_info, title="Detected Catalogued Earthqua
                 "epi_distance": True,
                 "depth": True,
                 "Prediction Confidence": True,
-                "P Error": successfully_detected['p_error']   # Show absolute p_error in hover data
+                "P Error": successfully_detected['p_error']  # Show absolute p_error in hover data
             },
             color_continuous_scale=px.colors.sequential.Sunset,  # Changed color scale
             size_max=10,
@@ -677,6 +678,7 @@ def add_station_marker(fig, station_info):
         )
         fig.add_trace(station_trace)
 
+
 def daily_report_automation_logic():
     # 获取当天日期
     current_date = datetime.datetime.now() - datetime.timedelta(days=2)
@@ -749,7 +751,8 @@ def daily_report_automation_logic():
             time.sleep(1)
 
             # Process stream data
-            process_stream_logic(station, detrend_demean, detrend_linear, remove_outliers, apply_bandpass, taper, denoise)
+            process_stream_logic(station, detrend_demean, detrend_linear, remove_outliers, apply_bandpass, taper,
+                                 denoise)
             st.write("Stream processing completed and saved.")
 
             # Step 4: Detect Phases
@@ -773,7 +776,7 @@ def daily_report_automation_logic():
             time.sleep(1)
 
             # Match events
-            detected_catalogued, detected_not_catalogued_count = match_events_logic(
+            detected_catalogued, detected_not_catalogued_count, updated_df = match_events_logic(
                 catalog, station, tolerance_p, tolerance_s, p_only)
             st.write(
                 f"Detected Catalogued Events: {detected_catalogued}, Detected Not Catalogued Count: {detected_not_catalogued_count}")
@@ -787,12 +790,8 @@ def daily_report_automation_logic():
                 st.write("Generating report...")
                 time.sleep(1)
 
-                # Read summary CSV and generate the report PDF
-                df, status = read_summary_csv(network, station_code)
-                filtered_df = df[df['date'] == report_date_str]
-
                 pdf_buffer = generate_report_logic(
-                    filtered_df, report_date_str,
+                    updated_df, report_date_str,
                     latitude, longitude, fill_map, simplified, p_only, save_to_file=True)
 
                 st.write("Report generated.")
