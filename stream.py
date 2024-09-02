@@ -4,6 +4,8 @@ import seisbench.models as sbm
 from matplotlib import pyplot as plt
 from obspy.core import AttribDict
 from obspy.signal.filter import bandpass
+import streamlit as st
+
 
 class StreamData:
     def __init__(self, station, stream=None):
@@ -36,7 +38,13 @@ class StreamData:
             trace.taper(max_percentage=max_percentage, type=taper_type)
 
     def process_denoise(self):
-        model = sbm.DeepDenoiser.from_pretrained("original")
+
+        @st.cache
+        def load_model():
+            return sbm.DeepDenoiser.from_pretrained("original")
+
+        model = load_model()
+
         original_channels = [tr.stats.channel for tr in self.processed_stream]
         annotations = model.annotate(self.processed_stream)
         for tr, channel in zip(annotations, original_channels):
@@ -44,7 +52,12 @@ class StreamData:
         self.processed_stream = annotations
 
     def predict_and_annotate(self):
-        model = sbm.EQTransformer.from_pretrained("original")
+        @st.cache
+        def load_model():
+            return sbm.EQTransformer.from_pretrained("original")
+
+        model = load_model()
+
         outputs = model.classify(self.processed_stream)
         predictions = []
         for pick in outputs.picks:
