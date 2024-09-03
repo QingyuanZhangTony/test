@@ -681,7 +681,7 @@ def add_station_marker(fig, station_info):
 
 def daily_report_automation_logic():
     # 获取当天日期
-    current_date = datetime.datetime.now() - datetime.timedelta(days=2)
+    current_date = datetime.datetime.now() - datetime.timedelta(days=1)
     default_config = load_config_to_df()
     report_date_str = current_date.strftime('%Y-%m-%d')
 

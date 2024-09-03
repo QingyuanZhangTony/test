@@ -14,7 +14,7 @@ import weasyprint
 from bs4 import BeautifulSoup
 from matplotlib.legend_handler import HandlerLine2D
 from obspy import read, UTCDateTime
-
+from email.mime.text import MIMEText
 import requests
 import os
 
@@ -108,6 +108,10 @@ class Report:
             msg['From'] = EMAIL_ADDRESS
             msg['To'] = recipient
 
+            # Add a plain text body to the email
+            body_text = f"This is an automatic email sent from your app. The Daily Report for {report_date} is attached."
+            msg.attach(MIMEText(body_text, 'plain'))
+
             # Construct the file name using the report date
             filename = f"daily_report_{report_date}.pdf"
 
@@ -118,6 +122,7 @@ class Report:
 
             # Connect to SMTP server
             smtp_obj = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+            smtp_obj.starttls()
             smtp_obj.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
 
             # Send the email
@@ -174,15 +179,22 @@ class DailyReport(Report):
         """
         Plot a world map with all catalogued events and the station location.
 
+        Parameters:
+        -----------
+        deployed : bool, optional
+            If True, uploads the plot to GitHub and returns the URL, otherwise returns the local file path.
+
         Returns:
-        - str: The path to the saved plot image or the GitHub URL if deployed.
+        --------
+        str:
+            The path to the saved plot image or the GitHub URL if deployed.
         """
         earthquakes = self.df_filtered[self.df_filtered['catalogued'] == True]
         title = f"Catalogue Events on {self.date_str}"
         file_name = f'catalogued_plot_{self.date_str}.png'
         output_path = os.path.join(self.report_folder, file_name)
 
-        # 从 df 中读取 station 相关信息
+        # Extract station-related information from df
         network = self.df.iloc[0]['network']
         code = self.df.iloc[0]['code']
         latitude = self.station_lat

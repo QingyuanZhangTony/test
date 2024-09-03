@@ -203,7 +203,7 @@ def load_summary_to_session():
 # Function to load settings from a YAML file
 
 
-def load_config_to_df(filename='default_config.yaml', deployed=True):
+def load_config_to_df(filename='user_config.yaml', deployed=True):
     """
     Load the configuration from a YAML file.
 
@@ -249,7 +249,7 @@ def load_config_to_session():
             st.session_state[key] = value
 
 
-def save_config_to_yaml(session_state, filename='default_config.yaml', deployed=True):
+def save_config_to_yaml(session_state, filename='user_config.yaml', deployed=True):
     """
     Save the configuration from the session state to a YAML file.
 

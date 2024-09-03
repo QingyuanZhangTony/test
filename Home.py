@@ -53,64 +53,69 @@ else:
     st.write("You're all set up and ready to start monitoring earthquakes.")
     st.divider()
 
-    # Display main application content with formatted coordinates to 2 decimal places
-    st.write(f"**Network:** {st.session_state['network']}  **Station:** {st.session_state['station_code']}")
-    st.write(
-        f"**Location:** {float(st.session_state['station_latitude']):.2f}, {float(st.session_state['station_longitude']):.2f}")
-    st.write(f"**Report Recipient Email:** {st.session_state['email_recipient']}")
+    with st.container():
+        st.write(
+            "This program was designed and implemented as part of my dissertation project for the MDS program at Durham University. "
+            "Please refer to the user manual for guidance on getting started. "
+            "If you have any questions or need assistance, feel free to contact me at xmpg69@durham.ac.uk."
+        )
 
     summary_status = load_summary_to_session()
 
+    st.divider()
     # 检查 summary 状态
     if summary_status == "exist_loaded":
-        # 获取今天日期
-        today = datetime.date.today()
+        with st.container():
+            st.subheader("Detection Update")
 
-        # 将 'date' 列转换为 datetime 对象
-        st.session_state.df['date'] = pd.to_datetime(st.session_state.df['date']).dt.date
+            # 获取今天日期
+            today = datetime.date.today()
 
-        # 计算总匹配成功的事件数
-        total_matched_events = \
-            st.session_state.df[st.session_state.df['catalogued'] & st.session_state.df['detected']].shape[0]
+            # 将 'date' 列转换为 datetime 对象
+            st.session_state.df['date'] = pd.to_datetime(st.session_state.df['date']).dt.date
 
-        # 计算昨天的匹配成功事件数
-        yesterday = today - datetime.timedelta(days=1)
-        yesterday_matched_events = st.session_state.df[
-            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
-                    st.session_state.df['date'] == yesterday)
-            ].shape[0]
+            # 计算总匹配成功的事件数
+            total_matched_events = \
+                st.session_state.df[st.session_state.df['catalogued'] & st.session_state.df['detected']].shape[0]
 
-        # 计算前天的匹配成功事件数（用于计算delta）
-        day_before_yesterday = today - datetime.timedelta(days=2)
-        day_before_yesterday_matched_events = st.session_state.df[
-            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
-                    st.session_state.df['date'] == day_before_yesterday)
-            ].shape[0]
+            # 计算昨天的匹配成功事件数
+            yesterday = today - datetime.timedelta(days=1)
+            yesterday_matched_events = st.session_state.df[
+                (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                        st.session_state.df['date'] == yesterday)
+                ].shape[0]
 
-        # 计算过去30天的匹配成功事件数
-        last_30_days = today - datetime.timedelta(days=30)
-        last_30_days_matched_events = st.session_state.df[
-            (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
-                    st.session_state.df['date'] >= last_30_days)
-            ].shape[0]
+            # 计算前天的匹配成功事件数（用于计算delta）
+            day_before_yesterday = today - datetime.timedelta(days=2)
+            day_before_yesterday_matched_events = st.session_state.df[
+                (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                        st.session_state.df['date'] == day_before_yesterday)
+                ].shape[0]
 
-        # 计算前30天的匹配成功事件数（用于计算delta）
-        previous_30_days = today - datetime.timedelta(days=60)
-        previous_30_days_matched_events = st.session_state.df[
-            (st.session_state.df['catalogued'] & st.session_state.df['detected']) &
-            (st.session_state.df['date'] >= previous_30_days) &
-            (st.session_state.df['date'] < last_30_days)
-            ].shape[0]
+            # 计算过去30天的匹配成功事件数
+            last_30_days = today - datetime.timedelta(days=30)
+            last_30_days_matched_events = st.session_state.df[
+                (st.session_state.df['catalogued'] & st.session_state.df['detected']) & (
+                        st.session_state.df['date'] >= last_30_days)
+                ].shape[0]
 
-        # 计算delta
-        yesterday_delta = yesterday_matched_events - day_before_yesterday_matched_events
-        last_30_days_delta = last_30_days_matched_events - previous_30_days_matched_events
+            # 计算前30天的匹配成功事件数（用于计算delta）
+            previous_30_days = today - datetime.timedelta(days=60)
+            previous_30_days_matched_events = st.session_state.df[
+                (st.session_state.df['catalogued'] & st.session_state.df['detected']) &
+                (st.session_state.df['date'] >= previous_30_days) &
+                (st.session_state.df['date'] < last_30_days)
+                ].shape[0]
 
-        # 展示在页面中
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Matched Events", total_matched_events)
-        col2.metric("Matched Events Yesterday", yesterday_matched_events, delta=yesterday_delta)
-        col3.metric("Matched Events Last 30 Days", last_30_days_matched_events, delta=last_30_days_delta)
+            # 计算delta
+            yesterday_delta = yesterday_matched_events - day_before_yesterday_matched_events
+            last_30_days_delta = last_30_days_matched_events - previous_30_days_matched_events
+
+            # 展示在页面中
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Matched Events", total_matched_events)
+            col2.metric("Matched Events Yesterday", yesterday_matched_events, delta=yesterday_delta)
+            col3.metric("Matched Events Last 30 Days", last_30_days_matched_events, delta=last_30_days_delta)
 
     elif summary_status == "exist_empty":
         st.warning("Total events summary file is empty. No metrics to display.")

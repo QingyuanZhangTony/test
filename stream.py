@@ -39,7 +39,7 @@ class StreamData:
 
     def process_denoise(self):
 
-        @st.cache
+        @st.cache_resource
         def load_model():
             return sbm.DeepDenoiser.from_pretrained("original")
 
@@ -52,7 +52,7 @@ class StreamData:
         self.processed_stream = annotations
 
     def predict_and_annotate(self):
-        @st.cache
+        @st.cache_resource
         def load_model():
             return sbm.EQTransformer.from_pretrained("original")
 

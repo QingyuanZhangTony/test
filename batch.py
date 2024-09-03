@@ -17,7 +17,7 @@ if __name__ == '__main__':
     default_config = load_config_to_df()
 
     # Calculate the date range from July 1st of the current year to yesterday
-    start_date = datetime.date(2024, 6, 22)
+    start_date = datetime.date(2024, 6, 27)
     end_date = datetime.date.today() - datetime.timedelta(days=1)
 
     current_date = start_date
@@ -116,8 +116,8 @@ if __name__ == '__main__':
                 print("Report generated.")
 
                 # Step 7: Send Email
-                #email_result = send_email_logic(default_config['email_recipient'], pdf_buffer, report_date_str)
-                #print(email_result)
+                email_result = send_email_logic(default_config['email_recipient'], pdf_buffer, report_date_str)
+                print(email_result)
 
             else:
                 print(f"Failed to download station data for {report_date_str}: {result['message']}")
@@ -125,4 +125,4 @@ if __name__ == '__main__':
         # Move to the next day regardless of success or failure
         current_date += datetime.timedelta(days=1)
         print('Waiting 60 seconds before processing the next day...')
-        time.sleep(60)
+        time.sleep(30)
