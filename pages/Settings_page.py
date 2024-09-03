@@ -25,6 +25,9 @@ sidebar_navigation()
 # Page title
 st.title("Settings")
 st.divider()
+st.write("Test user name: username")
+st.write("Test password: password")
+
 
 def check_password():
     """Returns `True` if the user had a correct password."""
